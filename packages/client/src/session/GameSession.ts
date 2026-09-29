@@ -2,14 +2,13 @@ import type { PlayerInput, World } from '@game/shared';
 import type { TransformSnapshot } from '../render/GameRenderer';
 
 export interface FrameState {
-  /** Entity transforms to interpolate from. */
-  previous: TransformSnapshot;
-  /** Interpolation factor between `previous` and the current world, in [0, 1]. */
-  alpha: number;
+  /** Where to draw each entity this frame. */
+  transforms: TransformSnapshot;
 }
 
 /** Where the world comes from: simulated locally, or received from a server. */
 export interface GameSession {
+  /** The world as it should be drawn this frame. */
   readonly world: World;
   /** The ped this client controls, or null until the server has assigned one. */
   readonly myPedId: number | null;

@@ -118,6 +118,15 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
   return ped;
 }
 
+/** Copies the world's entities so it can be simulated forward without touching the original. The map is shared. */
+export function cloneWorld(world: World): World {
+  return {
+    ...world,
+    peds: new Map([...world.peds].map(([id, ped]) => [id, { ...ped }])),
+    cars: new Map([...world.cars].map(([id, car]) => [id, { ...car }])),
+  };
+}
+
 /** Removes a ped (e.g. a player who disconnected), leaving any car they were driving empty. */
 export function removePed(world: World, pedId: number): void {
   const ped = world.peds.get(pedId);

@@ -1,5 +1,5 @@
 import { TICK_DT, createWorld, generateCity, spawnPed, stepWorld, type PlayerInput, type World } from '@game/shared';
-import { captureTransforms, type TransformSnapshot } from '../render/GameRenderer';
+import { captureTransforms, interpolateTransforms, type TransformSnapshot } from '../render/GameRenderer';
 import type { FrameState, GameSession } from './GameSession';
 
 /** Single-player: runs the shared simulation in the browser at the fixed tick rate. */
@@ -25,6 +25,6 @@ export class LocalSession implements GameSession {
       stepWorld(this.world, new Map([[this.myPedId, sampleInput()]]));
       this.accumulator -= TICK_DT;
     }
-    return { previous: this.previous, alpha: this.accumulator / TICK_DT };
+    return { transforms: interpolateTransforms(this.previous, this.world, this.accumulator / TICK_DT) };
   }
 }

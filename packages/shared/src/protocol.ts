@@ -16,14 +16,24 @@ export interface Snapshot {
   peds: Ped[];
 }
 
+/**
+ * The most inputs the server buffers per player (one second). A network hiccup can deliver a burst
+ * of inputs at once; those are still applied, one per tick. Only beyond this are old ones dropped.
+ */
+export const MAX_QUEUED_INPUTS = 60;
+
 export type ClientMessage =
-  /** Sent whenever the player's input changes; the server keeps using the latest one. */
-  | { type: 'input'; input: PlayerInput }
+  /**
+   * One tick of input, sent every client tick. `seq` increases by one per tick; the server applies
+   * inputs in order, one per server tick, and reports the last applied `seq` back in `acks`.
+   */
+  | { type: 'input'; seq: number; input: PlayerInput }
   | { type: 'ping'; time: number };
 
 export type ServerMessage =
   | { type: 'welcome'; pedId: number; seed: number; tickRate: number; snapshotEveryTicks: number }
-  | ({ type: 'snapshot' } & Snapshot)
+  /** `acks` maps ped id to the `seq` of that player's last input included in this snapshot. */
+  | ({ type: 'snapshot'; acks: Record<number, number> } & Snapshot)
   | { type: 'pong'; time: number };
 
 export function captureSnapshot(world: World): Snapshot {
@@ -51,10 +61,11 @@ export function parseClientMessage(data: string): ClientMessage | null {
   }
   if (typeof raw !== 'object' || raw === null) return null;
   const msg = raw as Record<string, unknown>;
-  if (msg.type === 'input' && typeof msg.input === 'object' && msg.input !== null) {
+  if (msg.type === 'input' && Number.isSafeInteger(msg.seq) && typeof msg.input === 'object' && msg.input !== null) {
     const input = msg.input as Record<string, unknown>;
     return {
       type: 'input',
+      seq: msg.seq as number,
       input: {
         up: input.up === true,
         down: input.down === true,

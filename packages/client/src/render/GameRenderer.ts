@@ -8,7 +8,7 @@ export interface Transform {
   heading: number;
 }
 
-/** Entity transforms from the previous tick, used to interpolate between fixed simulation ticks. */
+/** Entity transforms keyed by entity id. */
 export type TransformSnapshot = Map<number, Transform>;
 
 export function captureTransforms(world: World): TransformSnapshot {
@@ -16,6 +16,19 @@ export function captureTransforms(world: World): TransformSnapshot {
   for (const car of world.cars.values()) snapshot.set(car.id, { x: car.x, y: car.y, heading: car.heading });
   for (const ped of world.peds.values()) snapshot.set(ped.id, { x: ped.x, y: ped.y, heading: ped.heading });
   return snapshot;
+}
+
+export function lerpTransform(from: Transform, to: Transform, alpha: number): Transform {
+  return { x: lerp(from.x, to.x, alpha), y: lerp(from.y, to.y, alpha), heading: lerpAngle(from.heading, to.heading, alpha) };
+}
+
+/** Blends every entity from its `previous` transform towards its current one in `world`. */
+export function interpolateTransforms(previous: TransformSnapshot, world: World, alpha: number): TransformSnapshot {
+  const result: TransformSnapshot = new Map();
+  for (const entity of [...world.cars.values(), ...world.peds.values()]) {
+    result.set(entity.id, lerpTransform(previous.get(entity.id) ?? entity, entity, alpha));
+  }
+  return result;
 }
 
 /** Field of view in degrees across the shorter side of the window. */
@@ -67,27 +80,27 @@ export class GameRenderer {
   }
 
   /**
-   * @param alpha how far we are between the previous tick and the current one, in [0, 1)
+   * @param transforms where to draw each entity this frame (already interpolated)
    * @param focusPedId the ped the camera follows
    */
-  render(world: World, previous: TransformSnapshot, alpha: number, focusPedId: number | null, frameDt: number): void {
+  render(world: World, transforms: TransformSnapshot, focusPedId: number | null, frameDt: number): void {
     this.syncViews(this.carViews, world.cars, (car) => this.pack.createCarView(car));
     this.syncViews(this.pedViews, world.peds, (ped) => this.pack.createPedView(ped));
 
-    for (const car of world.cars.values()) this.place(this.carViews.get(car.id)!, previous.get(car.id) ?? car, car, alpha, frameDt);
+    for (const car of world.cars.values()) this.place(this.carViews.get(car.id)!, transforms.get(car.id) ?? car, frameDt);
     for (const ped of world.peds.values()) {
       const view = this.pedViews.get(ped.id)!;
       view.object.visible = ped.carId === null;
-      this.place(view, previous.get(ped.id) ?? ped, ped, alpha, frameDt);
+      this.place(view, transforms.get(ped.id) ?? ped, frameDt);
     }
 
     this.updateCamera(world, focusPedId, frameDt);
     this.renderer.render(this.scene, this.camera);
   }
 
-  private place(view: EntityView, from: Transform, to: Transform, alpha: number, frameDt: number): void {
-    view.object.position.set(lerp(from.x, to.x, alpha), lerp(from.y, to.y, alpha), 0);
-    view.object.rotation.z = lerpAngle(from.heading, to.heading, alpha);
+  private place(view: EntityView, transform: Transform, frameDt: number): void {
+    view.object.position.set(transform.x, transform.y, 0);
+    view.object.rotation.z = transform.heading;
     view.update?.(frameDt);
   }
 

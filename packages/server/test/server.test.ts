@@ -59,14 +59,33 @@ test('each client gets its own ped and sees the other players', async () => {
   a.close();
 });
 
-test('the server moves a player according to their input', async () => {
+test('the server applies inputs in order, one per tick, and acknowledges them', async () => {
   const client = new TestClient(server.port);
   const { pedId } = await client.next('welcome');
   const start = (await client.next('snapshot')).peds.find((p) => p.id === pedId)!;
 
-  client.send({ type: 'input', input: { ...NO_INPUT, left: true } });
-  const turned = await client.next('snapshot', (s) => Math.abs(s.peds.find((p) => p.id === pedId)!.heading - start.heading) > 0.5);
-  assert.ok(turned);
+  // 30 ticks of turning left, then 5 ticks of nothing.
+  for (let seq = 1; seq <= 35; seq++) client.send({ type: 'input', seq, input: { ...NO_INPUT, left: seq <= 30 } });
+  const done = await client.next('snapshot', (s) => s.acks[pedId] === 35);
+  const ped = done.peds.find((p) => p.id === pedId)!;
+
+  // Exactly 30 ticks of turning at 4.5 rad/s, no more, no less.
+  const turned = Math.atan2(Math.sin(ped.heading - start.heading), Math.cos(ped.heading - start.heading));
+  const expected = Math.atan2(Math.sin(30 * 4.5 / 60), Math.cos(30 * 4.5 / 60));
+  assert.ok(Math.abs(turned - expected) < 1e-9, `turned ${turned}, expected ${expected}`);
+  client.close();
+});
+
+test('duplicate and out-of-order inputs are ignored', async () => {
+  const client = new TestClient(server.port);
+  const { pedId } = await client.next('welcome');
+  client.send({ type: 'input', seq: 5, input: NO_INPUT });
+  client.send({ type: 'input', seq: 5, input: { ...NO_INPUT, left: true } });
+  client.send({ type: 'input', seq: 3, input: { ...NO_INPUT, left: true } });
+  const snap = await client.next('snapshot', (s) => s.acks[pedId] === 5);
+  const later = await client.next('snapshot', (s) => s.tick > snap.tick + 4);
+  assert.equal(later.acks[pedId], 5);
+  assert.equal(later.peds.find((p) => p.id === pedId)!.heading, snap.peds.find((p) => p.id === pedId)!.heading);
   client.close();
 });
 

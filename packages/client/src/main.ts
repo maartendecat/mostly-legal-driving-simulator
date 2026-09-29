@@ -12,6 +12,7 @@ import { NetworkSession } from './session/NetworkSession';
  *   ?offline           play single-player without a server
  *   ?server=ws://...   game server to connect to (default: same host, port 8080)
  *   ?seed=42           city seed for offline play
+ *   ?lag=150           simulate this much round-trip network delay, in ms (for testing)
  */
 async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);
@@ -34,8 +35,8 @@ async function main(): Promise<void> {
     // Clamp long frames (e.g. background tab) so we don't simulate a huge backlog at once.
     const frameDt = Math.min((now - last) / 1000, 0.25);
     last = now;
-    const { previous, alpha } = session.update(frameDt, () => keyboard.sample());
-    renderer.render(session.world, previous, alpha, session.myPedId, frameDt);
+    const { transforms } = session.update(frameDt, () => keyboard.sample());
+    renderer.render(session.world, transforms, session.myPedId, frameDt);
 
     if (frameDt > 0) fps += (1 / frameDt - fps) * 0.05;
     hud.textContent = hudText(session, fps, pack);
@@ -51,7 +52,7 @@ async function startSession(params: URLSearchParams, hud: HTMLElement): Promise<
   const url = params.get('server') ?? `ws://${location.hostname}:${DEFAULT_SERVER_PORT}`;
   hud.textContent = `Connecting to ${url}...`;
   try {
-    return await NetworkSession.connect(url);
+    return await NetworkSession.connect(url, { lagMs: Number(params.get('lag')) || 0 });
   } catch (error) {
     console.warn(error);
     return new LocalSession(seed, 'Offline (no server found; start one with: npm run server)');

@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import {
+  MAX_QUEUED_INPUTS,
   NO_INPUT,
   SNAPSHOT_EVERY_TICKS,
   TICK_DT,
@@ -24,10 +25,12 @@ export interface GameServerOptions {
 interface Player {
   socket: WebSocket;
   pedId: number;
-  /** The most recent input the client sent; it stays in effect until the next one arrives. */
+  /** Inputs received but not yet applied, oldest first. */
+  queue: { seq: number; input: PlayerInput }[];
+  /** The input applied last tick; repeated if the queue runs dry (late or lost packets). */
   input: PlayerInput;
-  /** Set when an `enter` press arrives, so a quick tap between two ticks isn't lost. */
-  enterLatched: boolean;
+  /** `seq` of the last input applied, reported back to the client for reconciliation. */
+  ack: number;
 }
 
 /**
@@ -75,7 +78,7 @@ export class GameServer {
 
   private onConnection(socket: WebSocket): void {
     const ped = spawnPed(this.world);
-    const player: Player = { socket, pedId: ped.id, input: { ...NO_INPUT }, enterLatched: false };
+    const player: Player = { socket, pedId: ped.id, queue: [], input: { ...NO_INPUT }, ack: 0 };
     this.players.add(player);
     send(socket, {
       type: 'welcome',
@@ -84,14 +87,16 @@ export class GameServer {
       tickRate: TICK_RATE,
       snapshotEveryTicks: SNAPSHOT_EVERY_TICKS,
     });
-    send(socket, { type: 'snapshot', ...captureSnapshot(this.world) });
+    send(socket, { type: 'snapshot', ...captureSnapshot(this.world), acks: this.acks() });
 
     socket.on('message', (data) => {
       const msg = parseClientMessage(data.toString());
       if (!msg) return;
       if (msg.type === 'input') {
-        player.input = msg.input;
-        if (msg.input.enter) player.enterLatched = true;
+        const newest = player.queue.at(-1)?.seq ?? player.ack;
+        if (msg.seq <= newest) return; // duplicate or out of order
+        player.queue.push({ seq: msg.seq, input: msg.input });
+        if (player.queue.length > MAX_QUEUED_INPUTS) player.queue.shift();
       } else {
         send(socket, { type: 'pong', time: msg.time });
       }
@@ -115,17 +120,27 @@ export class GameServer {
   private tick(): void {
     const inputs = new Map<number, PlayerInput>();
     for (const player of this.players) {
-      inputs.set(player.pedId, { ...player.input, enter: player.input.enter || player.enterLatched });
-      player.enterLatched = false;
+      const next = player.queue.shift();
+      if (next) {
+        player.input = next.input;
+        player.ack = next.seq;
+      }
+      inputs.set(player.pedId, player.input);
     }
     stepWorld(this.world, inputs);
 
     if (this.world.tick % SNAPSHOT_EVERY_TICKS === 0 && this.players.size > 0) {
-      const message = JSON.stringify({ type: 'snapshot', ...captureSnapshot(this.world) } satisfies ServerMessage);
+      const message = JSON.stringify({ type: 'snapshot', ...captureSnapshot(this.world), acks: this.acks() } satisfies ServerMessage);
       for (const player of this.players) {
         if (player.socket.readyState === WebSocket.OPEN) player.socket.send(message);
       }
     }
+  }
+
+  private acks(): Record<number, number> {
+    const acks: Record<number, number> = {};
+    for (const player of this.players) acks[player.pedId] = player.ack;
+    return acks;
   }
 }
 

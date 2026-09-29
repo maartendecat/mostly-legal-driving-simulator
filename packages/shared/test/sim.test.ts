@@ -5,6 +5,7 @@ import {
   NO_INPUT,
   carCollides,
   carSpeed,
+  cloneWorld,
   createWorld,
   generateCity,
   pedCollides,
@@ -96,4 +97,31 @@ test('peds cannot walk through buildings', () => {
     stepWorld(world, inputs);
     assert.ok(!pedCollides(world.map, ped.x, ped.y), `ped inside a wall at tick ${world.tick}`);
   }
+});
+
+test('replaying inputs on a copy of the world reproduces the same state (needed for reconciliation)', () => {
+  const world = createWorld(generateCity(9), 9);
+  const car = firstCar(world);
+  const ped = spawnPed(world, car.x, car.y);
+  const start = { x: car.x, y: car.y };
+  const script = (tick: number) => input({ enter: tick === 0, up: tick > 5, left: tick % 40 < 15, handbrake: tick % 60 > 50 });
+
+  let copy: World | undefined;
+  for (let tick = 0; tick < 200; tick++) {
+    if (tick === 120) copy = cloneWorld(world);
+    stepWorld(world, new Map([[ped.id, script(tick)]]));
+  }
+  for (let tick = 120; tick < 200; tick++) stepWorld(copy!, new Map([[ped.id, script(tick)]]));
+
+  assert.deepEqual([...copy!.cars.values()], [...world.cars.values()]);
+  assert.deepEqual([...copy!.peds.values()], [...world.peds.values()]);
+  const end = world.cars.get(car.id)!;
+  assert.ok(Math.hypot(end.x - start.x, end.y - start.y) > 3, 'the scripted drive should actually move the car');
+});
+
+test('cloneWorld does not share entity objects with the original', () => {
+  const world = createWorld(generateCity(2), 2);
+  const copy = cloneWorld(world);
+  firstCar(copy).x += 5;
+  assert.notEqual(firstCar(copy).x, firstCar(world).x);
 });
