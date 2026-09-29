@@ -1,35 +1,7 @@
 import * as THREE from 'three';
-import { carSpeed, lerp, lerpAngle, type BlockMap, type World } from '@game/shared';
+import { carSpeed, type BlockMap, type World } from '@game/shared';
 import type { AssetPack, EntityView } from '../assets/AssetPack';
-
-export interface Transform {
-  x: number;
-  y: number;
-  heading: number;
-}
-
-/** Entity transforms keyed by entity id. */
-export type TransformSnapshot = Map<number, Transform>;
-
-export function captureTransforms(world: World): TransformSnapshot {
-  const snapshot: TransformSnapshot = new Map();
-  for (const car of world.cars.values()) snapshot.set(car.id, { x: car.x, y: car.y, heading: car.heading });
-  for (const ped of world.peds.values()) snapshot.set(ped.id, { x: ped.x, y: ped.y, heading: ped.heading });
-  return snapshot;
-}
-
-export function lerpTransform(from: Transform, to: Transform, alpha: number): Transform {
-  return { x: lerp(from.x, to.x, alpha), y: lerp(from.y, to.y, alpha), heading: lerpAngle(from.heading, to.heading, alpha) };
-}
-
-/** Blends every entity from its `previous` transform towards its current one in `world`. */
-export function interpolateTransforms(previous: TransformSnapshot, world: World, alpha: number): TransformSnapshot {
-  const result: TransformSnapshot = new Map();
-  for (const entity of [...world.cars.values(), ...world.peds.values()]) {
-    result.set(entity.id, lerpTransform(previous.get(entity.id) ?? entity, entity, alpha));
-  }
-  return result;
-}
+import type { Transform, TransformSnapshot } from './transforms';
 
 /** Field of view in degrees across the shorter side of the window. */
 const FIELD_OF_VIEW = 60;
@@ -53,6 +25,7 @@ export class GameRenderer {
   private mapObject: THREE.Object3D | null = null;
   private cameraHeight = BASE_CAMERA_HEIGHT;
   private readonly lookahead = new THREE.Vector2();
+  private readonly projected = new THREE.Vector3();
 
   constructor(
     private readonly container: HTMLElement,
@@ -96,6 +69,16 @@ export class GameRenderer {
 
     this.updateCamera(world, focusPedId, frameDt);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Projects a world position to CSS pixels in the game container, or null if it's off screen. */
+  projectToScreen(x: number, y: number, z: number): { x: number; y: number } | null {
+    const p = this.projected.set(x, y, z).project(this.camera);
+    if (p.x < -1.1 || p.x > 1.1 || p.y < -1.1 || p.y > 1.1 || p.z > 1) return null;
+    return {
+      x: ((p.x + 1) / 2) * this.container.clientWidth,
+      y: ((1 - p.y) / 2) * this.container.clientHeight,
+    };
   }
 
   private place(view: EntityView, transform: Transform, frameDt: number): void {

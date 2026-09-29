@@ -18,9 +18,11 @@ class TestClient {
   readonly socket: WebSocket;
   readonly messages: ServerMessage[] = [];
 
-  constructor(port: number) {
+  /** Joins with `name` as soon as the connection opens, unless `name` is null. */
+  constructor(port: number, name: string | null = 'Tester') {
     this.socket = new WebSocket(`ws://localhost:${port}`);
     this.socket.on('message', (data) => this.messages.push(JSON.parse(data.toString()) as ServerMessage));
+    if (name !== null) this.socket.on('open', () => this.send({ type: 'join', name }));
   }
 
   async next<T extends ServerMessage['type']>(type: T, where: (m: Extract<ServerMessage, { type: T }>) => boolean = () => true, timeoutMs = 2000) {
@@ -98,4 +100,31 @@ test('malformed messages are ignored and ping is answered', async () => {
   const pong = await client.next('pong');
   assert.equal(pong.time, 42);
   client.close();
+});
+
+test('players get sanitized, unique names that everyone can see', async () => {
+  const a = new TestClient(server.port, '  Dave\u0000 \n the   Rave ');
+  const { pedId: pedA } = await a.next('welcome');
+  const b = new TestClient(server.port, 'dave THE rave');
+  const { pedId: pedB } = await b.next('welcome');
+  const c = new TestClient(server.port, '   ');
+  const { pedId: pedC } = await c.next('welcome');
+
+  const snapshot = await a.next('snapshot', (s) => s.players.length === 3);
+  const names = new Map(snapshot.players.map((p) => [p.pedId, p.name]));
+  assert.equal(names.get(pedA), 'Dave the Rave');
+  assert.equal(names.get(pedB), 'dave THE rave 2');
+  assert.match(names.get(pedC)!, /^Player \d+$/);
+  [a, b, c].forEach((client) => client.close());
+});
+
+test('a connection gets no ped until it joins', async () => {
+  const lurker = new TestClient(server.port, null);
+  await new Promise((resolve) => lurker.socket.once('open', resolve));
+  lurker.send({ type: 'input', seq: 1, input: { ...NO_INPUT, up: true } });
+  lurker.send({ type: 'ping', time: 1 });
+  await lurker.next('pong');
+  await new Promise((r) => setTimeout(r, 100));
+  assert.ok(!lurker.messages.some((m) => m.type === 'welcome' || m.type === 'snapshot'));
+  lurker.close();
 });

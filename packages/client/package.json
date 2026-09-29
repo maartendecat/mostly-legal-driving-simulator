@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p . && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "three": "^0.186.1"

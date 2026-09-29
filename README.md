@@ -1,4 +1,4 @@
-# GTA2 Online (working title)
+# Mostly Legal Driving Simulator
 
 A browser-based, online-multiplayer game in the spirit of GTA2's multiplayer: top-down city, cars,
 guns, Frag/Points/Tag modes, and arrows pointing at the other players.
@@ -15,8 +15,8 @@ npm test           # simulation and server tests
 npm run typecheck
 ```
 
-Open http://localhost:5173 in several tabs or browsers to get several players in the same city.
-If no server is running, the client falls back to offline single-player. URL options:
+Open http://localhost:5173 in several tabs or browsers, pick a name and press *Play online* to get
+several players in the same city. *Play offline* runs single-player without a server. URL options:
 `?offline` to force single-player, `?server=ws://host:port` to pick a server, `?lag=200` to
 simulate a slow connection.
 
@@ -37,6 +37,8 @@ packages/
 Online, the client predicts its own movement: it applies each input locally straight away and sends
 it to the server with a sequence number. Snapshots report the last input the server applied; the
 client resets to the server's state and replays the rest, which corrects any misprediction.
+Other players are drawn 100 ms in the past, blended between buffered snapshots, so they move
+smoothly even when snapshots arrive late or get lost.
 
 The simulation runs at a fixed 60 ticks per second. The client interpolates between ticks
 when rendering, so it looks smooth at any frame rate.
@@ -61,9 +63,8 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 ## Roadmap
 
 1. ✅ Shared simulation, placeholder renderer, driving and walking offline
-2. Authoritative server over WebSockets (✅ 2a: server and snapshots; ✅ 2b: client-side
-   prediction with server reconciliation), then smooth interpolation of other players plus a
-   join screen (2c)
+2. ✅ Multiplayer: authoritative WebSocket server, client-side prediction with reconciliation,
+   snapshot interpolation for other players, join screen with player names
 3. Weapons, damage, respawn, Frag mode, player arrows
 4. Lobbies and matchmaking; map editor
 5. Open asset pack, then the classic pack importer

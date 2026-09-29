@@ -3,36 +3,154 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GTA2 Online (prototype)</title>
+    <title>Mostly Legal Driving Simulator</title>
     <style>
+      :root {
+        --accent: #f5c518;
+        --panel: rgba(20, 20, 24, 0.92);
+        --text: #f2f2f2;
+        --muted: #9a9aa3;
+        --danger: #ff6b6b;
+      }
       html,
       body {
         margin: 0;
         height: 100%;
         overflow: hidden;
         background: #111;
+        color: var(--text);
         font-family: ui-monospace, 'SF Mono', Menlo, monospace;
       }
-      #game {
+      #game,
+      #tags {
         position: fixed;
         inset: 0;
+      }
+      #tags {
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .name-tag {
+        position: absolute;
+        left: 0;
+        top: 0;
+        padding: 1px 6px;
+        border-radius: 3px;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        font-size: 12px;
+        white-space: nowrap;
+        will-change: transform;
       }
       #hud {
         position: fixed;
         top: 12px;
         left: 12px;
-        color: #fff;
         font-size: 13px;
         line-height: 1.5;
         text-shadow: 0 1px 2px #000;
         pointer-events: none;
         white-space: pre;
       }
+
+      #join {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+        background: radial-gradient(circle at 50% 40%, #2a2a31, #0c0c0e);
+      }
+      #join[hidden] {
+        display: none;
+      }
+      #join-form {
+        width: min(340px, 100%);
+        padding: 28px 24px;
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      #join h1 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.15;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--accent);
+      }
+      #join .subtitle {
+        margin: -6px 0 12px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      #join label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      #join input {
+        font: inherit;
+        font-size: 16px;
+        padding: 10px 12px;
+        border-radius: 4px;
+        border: 1px solid #44444c;
+        background: #111114;
+        color: var(--text);
+      }
+      #join input:focus {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+      #join button {
+        font: inherit;
+        font-size: 15px;
+        padding: 10px 12px;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+      }
+      #join-play {
+        margin-top: 6px;
+        background: var(--accent);
+        color: #111;
+        font-weight: bold;
+      }
+      #join-play:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
+      #join-offline {
+        background: transparent;
+        color: var(--muted);
+        text-decoration: underline;
+      }
+      #join-error {
+        margin: 0;
+        min-height: 1em;
+        color: var(--danger);
+        font-size: 12px;
+        line-height: 1.4;
+      }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <div id="tags"></div>
     <div id="hud"></div>
+    <div id="join" hidden>
+      <form id="join-form">
+        <h1>Mostly Legal<br />Driving Simulator</h1>
+        <p class="subtitle">prototype</p>
+        <label for="join-name">Your name</label>
+        <input id="join-name" name="name" autocomplete="nickname" placeholder="Leave empty for a random one" />
+        <button id="join-play" type="submit">Play online</button>
+        <button id="join-offline" type="button">Play offline</button>
+        <p id="join-error" role="alert"></p>
+      </form>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

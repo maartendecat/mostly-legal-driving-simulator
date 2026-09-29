@@ -6,17 +6,20 @@ import {
   generateCity,
   stepWorld,
   type ClientMessage,
+  type PlayerInfo,
   type PlayerInput,
   type ServerMessage,
   type World,
 } from '@game/shared';
-import { captureTransforms, interpolateTransforms, lerpTransform, type TransformSnapshot } from '../render/GameRenderer';
+import { captureTransforms, lerpTransform, type TransformSnapshot } from '../render/transforms';
 import type { FrameState, GameSession } from './GameSession';
+import { SnapshotBuffer } from './SnapshotBuffer';
 
 type Welcome = Extract<ServerMessage, { type: 'welcome' }>;
 type SnapshotMessage = Extract<ServerMessage, { type: 'snapshot' }>;
 
 export interface ConnectOptions {
+  name: string;
   timeoutMs?: number;
   /** Artificial round-trip delay, to test how the game feels on a slow connection. */
   lagMs?: number;
@@ -33,7 +36,9 @@ const PING_INTERVAL_MS = 2000;
  * prediction to the server's state and replay the inputs it hasn't seen yet (reconciliation), so
  * any mistake in our prediction is corrected within one round trip.
  *
- * Our own ped and car are drawn from the prediction; everything else from the server snapshots.
+ * Our own ped and car are drawn from the prediction. Everything else is drawn slightly in the past,
+ * blended between buffered server snapshots (see SnapshotBuffer), so other players move smoothly
+ * even when snapshots arrive unevenly.
  */
 export class NetworkSession implements GameSession {
   readonly myPedId: number;
@@ -42,16 +47,15 @@ export class NetworkSession implements GameSession {
   private displayWorld: World;
   private pending: { seq: number; input: PlayerInput }[] = [];
   private nextSeq = 1;
-  private previousServer: TransformSnapshot;
   private previousPredicted: TransformSnapshot;
-  private sinceSnapshot = 0;
+  private readonly snapshots: SnapshotBuffer;
   private accumulator = 0;
-  private readonly snapshotInterval: number;
+  private playerList: PlayerInfo[] = [];
   private pingMs: number | null = null;
   private connected = true;
 
   /** Connects to a game server and resolves once the server has welcomed us. */
-  static connect(url: string, { timeoutMs = 3000, lagMs = 0 }: ConnectOptions = {}): Promise<NetworkSession> {
+  static connect(url: string, { name, timeoutMs = 3000, lagMs = 0 }: ConnectOptions): Promise<NetworkSession> {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url);
       const fail = (reason: string) => {
@@ -61,6 +65,7 @@ export class NetworkSession implements GameSession {
       };
       const timer = setTimeout(() => fail(`Timed out connecting to ${url}`), timeoutMs);
       socket.addEventListener('error', () => fail(`Could not connect to ${url}`));
+      socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'join', name } satisfies ClientMessage)));
       const onWelcome = (event: MessageEvent) => {
         const message = JSON.parse(event.data as string) as ServerMessage;
         if (message.type !== 'welcome') return;
@@ -79,13 +84,12 @@ export class NetworkSession implements GameSession {
     private readonly lagMs: number,
   ) {
     this.myPedId = welcome.pedId;
-    this.snapshotInterval = welcome.snapshotEveryTicks / welcome.tickRate;
+    this.snapshots = new SnapshotBuffer(welcome.tickRate);
     // The map is generated from the seed; entities come from snapshots.
     this.serverWorld = createWorld(generateCity(welcome.seed), welcome.seed);
     this.serverWorld.cars.clear();
     this.predicted = cloneWorld(this.serverWorld);
     this.displayWorld = this.serverWorld;
-    this.previousServer = new Map();
     this.previousPredicted = new Map();
 
     socket.addEventListener('message', (event) => {
@@ -102,6 +106,10 @@ export class NetworkSession implements GameSession {
 
   get world(): World {
     return this.displayWorld;
+  }
+
+  get players(): readonly PlayerInfo[] {
+    return this.playerList;
   }
 
   get status(): string {
@@ -123,10 +131,9 @@ export class NetworkSession implements GameSession {
       stepWorld(this.predicted, new Map([[this.myPedId, input]]));
       this.accumulator -= TICK_DT;
     }
-    this.sinceSnapshot += frameDt;
 
-    // Everyone else: blend between the last two server snapshots.
-    const transforms = interpolateTransforms(this.previousServer, this.serverWorld, Math.min(this.sinceSnapshot / this.snapshotInterval, 1));
+    // Everyone else: slightly in the past, blended between buffered snapshots.
+    const transforms = this.snapshots.sample(performance.now());
     // Ourselves: blend between the last two predicted ticks.
     const display: World = { ...this.serverWorld, peds: new Map(this.serverWorld.peds), cars: new Map(this.serverWorld.cars) };
     const alpha = this.accumulator / TICK_DT;
@@ -162,9 +169,9 @@ export class NetworkSession implements GameSession {
   }
 
   private onSnapshot(snapshot: SnapshotMessage): void {
-    this.previousServer = captureTransforms(this.serverWorld);
     applySnapshot(this.serverWorld, snapshot);
-    this.sinceSnapshot = 0;
+    this.snapshots.push(snapshot.tick, captureTransforms(this.serverWorld), performance.now());
+    this.playerList = snapshot.players;
 
     // Reconcile: restart the prediction from the server's state and replay unacknowledged inputs.
     const ack = snapshot.acks[this.myPedId] ?? 0;

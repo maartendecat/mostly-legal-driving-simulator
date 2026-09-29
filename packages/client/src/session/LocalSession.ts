@@ -1,11 +1,12 @@
-import { TICK_DT, createWorld, generateCity, spawnPed, stepWorld, type PlayerInput, type World } from '@game/shared';
-import { captureTransforms, interpolateTransforms, type TransformSnapshot } from '../render/GameRenderer';
+import { TICK_DT, createWorld, generateCity, spawnPed, stepWorld, type PlayerInfo, type PlayerInput, type World } from '@game/shared';
+import { captureTransforms, interpolateTransforms, type TransformSnapshot } from '../render/transforms';
 import type { FrameState, GameSession } from './GameSession';
 
 /** Single-player: runs the shared simulation in the browser at the fixed tick rate. */
 export class LocalSession implements GameSession {
   readonly world: World;
   readonly myPedId: number;
+  readonly players: readonly PlayerInfo[];
   private previous: TransformSnapshot;
   private accumulator = 0;
 
@@ -15,6 +16,7 @@ export class LocalSession implements GameSession {
   ) {
     this.world = createWorld(generateCity(seed), seed);
     this.myPedId = spawnPed(this.world).id;
+    this.players = [{ pedId: this.myPedId, name: 'You' }];
     this.previous = captureTransforms(this.world);
   }
 

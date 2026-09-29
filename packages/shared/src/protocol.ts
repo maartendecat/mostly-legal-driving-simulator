@@ -10,6 +10,13 @@ export const DEFAULT_SERVER_PORT = 8080;
 /** The server simulates at TICK_RATE but only broadcasts every this many ticks. */
 export const SNAPSHOT_EVERY_TICKS = 2;
 
+export const MAX_NAME_LENGTH = 16;
+
+export interface PlayerInfo {
+  pedId: number;
+  name: string;
+}
+
 export interface Snapshot {
   tick: number;
   cars: Car[];
@@ -23,6 +30,8 @@ export interface Snapshot {
 export const MAX_QUEUED_INPUTS = 60;
 
 export type ClientMessage =
+  /** First message after connecting; the server creates the player's ped in response. */
+  | { type: 'join'; name: string }
   /**
    * One tick of input, sent every client tick. `seq` increases by one per tick; the server applies
    * inputs in order, one per server tick, and reports the last applied `seq` back in `acks`.
@@ -33,7 +42,7 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: 'welcome'; pedId: number; seed: number; tickRate: number; snapshotEveryTicks: number }
   /** `acks` maps ped id to the `seq` of that player's last input included in this snapshot. */
-  | ({ type: 'snapshot'; acks: Record<number, number> } & Snapshot)
+  | ({ type: 'snapshot'; acks: Record<number, number>; players: PlayerInfo[] } & Snapshot)
   | { type: 'pong'; time: number };
 
 export function captureSnapshot(world: World): Snapshot {
@@ -77,6 +86,17 @@ export function parseClientMessage(data: string): ClientMessage | null {
       },
     };
   }
+  if (msg.type === 'join' && typeof msg.name === 'string') return { type: 'join', name: sanitizeName(msg.name) };
   if (msg.type === 'ping' && typeof msg.time === 'number') return { type: 'ping', time: msg.time };
   return null;
+}
+
+/** Strips control characters and extra whitespace and limits the length. May return ''. */
+export function sanitizeName(name: string): string {
+  return name
+    .replace(/[\p{C}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_NAME_LENGTH)
+    .trim();
 }

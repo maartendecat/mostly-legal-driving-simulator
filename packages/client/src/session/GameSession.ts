@@ -1,5 +1,5 @@
-import type { PlayerInput, World } from '@game/shared';
-import type { TransformSnapshot } from '../render/GameRenderer';
+import type { PlayerInfo, PlayerInput, World } from '@game/shared';
+import type { TransformSnapshot } from '../render/transforms';
 
 export interface FrameState {
   /** Where to draw each entity this frame. */
@@ -12,6 +12,8 @@ export interface GameSession {
   readonly world: World;
   /** The ped this client controls, or null until the server has assigned one. */
   readonly myPedId: number | null;
+  /** Everyone in the game, including us. */
+  readonly players: readonly PlayerInfo[];
   /** Short status for the HUD, e.g. "Offline" or "Online · 3 players · 40 ms". */
   readonly status: string;
   /** Advances the session by one rendered frame. `sampleInput` is called once per simulation tick. */

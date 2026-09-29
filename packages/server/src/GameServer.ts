@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import {
+  MAX_NAME_LENGTH,
   MAX_QUEUED_INPUTS,
   NO_INPUT,
   SNAPSHOT_EVERY_TICKS,
@@ -12,6 +13,7 @@ import {
   removePed,
   spawnPed,
   stepWorld,
+  type PlayerInfo,
   type PlayerInput,
   type ServerMessage,
   type World,
@@ -24,6 +26,7 @@ export interface GameServerOptions {
 
 interface Player {
   socket: WebSocket;
+  name: string;
   pedId: number;
   /** Inputs received but not yet applied, oldest first. */
   queue: { seq: number; input: PlayerInput }[];
@@ -40,10 +43,12 @@ interface Player {
 export class GameServer {
   readonly world: World;
   private readonly wss: WebSocketServer;
+  /** Players who have joined. Connections that haven't sent `join` yet only get pongs. */
   private readonly players = new Set<Player>();
   private readonly timer: ReturnType<typeof setInterval>;
   private lastTime = performance.now();
   private accumulator = 0;
+  private joinCount = 0;
 
   constructor(private readonly options: GameServerOptions) {
     this.world = createWorld(generateCity(options.seed), options.seed);
@@ -72,13 +77,45 @@ export class GameServer {
 
   close(): Promise<void> {
     clearInterval(this.timer);
-    for (const player of this.players) player.socket.terminate();
+    for (const socket of this.wss.clients) socket.terminate();
     return new Promise((resolve) => this.wss.close(() => resolve()));
   }
 
   private onConnection(socket: WebSocket): void {
+    let player: Player | null = null;
+
+    socket.on('message', (data) => {
+      const msg = parseClientMessage(data.toString());
+      if (!msg) return;
+      if (msg.type === 'ping') {
+        send(socket, { type: 'pong', time: msg.time });
+      } else if (msg.type === 'join') {
+        if (!player) player = this.join(socket, msg.name);
+      } else if (player) {
+        const newest = player.queue.at(-1)?.seq ?? player.ack;
+        if (msg.seq <= newest) return; // duplicate or out of order
+        player.queue.push({ seq: msg.seq, input: msg.input });
+        if (player.queue.length > MAX_QUEUED_INPUTS) player.queue.shift();
+      }
+    });
+    socket.on('close', () => {
+      if (!player) return;
+      this.players.delete(player);
+      removePed(this.world, player.pedId);
+    });
+  }
+
+  private join(socket: WebSocket, requestedName: string): Player {
+    this.joinCount++;
     const ped = spawnPed(this.world);
-    const player: Player = { socket, pedId: ped.id, queue: [], input: { ...NO_INPUT }, ack: 0 };
+    const player: Player = {
+      socket,
+      name: this.uniqueName(requestedName || `Player ${this.joinCount}`),
+      pedId: ped.id,
+      queue: [],
+      input: { ...NO_INPUT },
+      ack: 0,
+    };
     this.players.add(player);
     send(socket, {
       type: 'welcome',
@@ -87,24 +124,19 @@ export class GameServer {
       tickRate: TICK_RATE,
       snapshotEveryTicks: SNAPSHOT_EVERY_TICKS,
     });
-    send(socket, { type: 'snapshot', ...captureSnapshot(this.world), acks: this.acks() });
+    send(socket, this.snapshotMessage());
+    return player;
+  }
 
-    socket.on('message', (data) => {
-      const msg = parseClientMessage(data.toString());
-      if (!msg) return;
-      if (msg.type === 'input') {
-        const newest = player.queue.at(-1)?.seq ?? player.ack;
-        if (msg.seq <= newest) return; // duplicate or out of order
-        player.queue.push({ seq: msg.seq, input: msg.input });
-        if (player.queue.length > MAX_QUEUED_INPUTS) player.queue.shift();
-      } else {
-        send(socket, { type: 'pong', time: msg.time });
-      }
-    });
-    socket.on('close', () => {
-      this.players.delete(player);
-      removePed(this.world, player.pedId);
-    });
+  /** Appends " 2", " 3", ... if another player already uses this name. */
+  private uniqueName(name: string): string {
+    const taken = new Set([...this.players].map((p) => p.name.toLowerCase()));
+    if (!taken.has(name.toLowerCase())) return name;
+    for (let n = 2; ; n++) {
+      const suffix = ` ${n}`;
+      const candidate = name.slice(0, MAX_NAME_LENGTH - suffix.length) + suffix;
+      if (!taken.has(candidate.toLowerCase())) return candidate;
+    }
   }
 
   private update(): void {
@@ -130,17 +162,21 @@ export class GameServer {
     stepWorld(this.world, inputs);
 
     if (this.world.tick % SNAPSHOT_EVERY_TICKS === 0 && this.players.size > 0) {
-      const message = JSON.stringify({ type: 'snapshot', ...captureSnapshot(this.world), acks: this.acks() } satisfies ServerMessage);
+      const message = JSON.stringify(this.snapshotMessage());
       for (const player of this.players) {
         if (player.socket.readyState === WebSocket.OPEN) player.socket.send(message);
       }
     }
   }
 
-  private acks(): Record<number, number> {
+  private snapshotMessage(): ServerMessage {
     const acks: Record<number, number> = {};
-    for (const player of this.players) acks[player.pedId] = player.ack;
-    return acks;
+    const players: PlayerInfo[] = [];
+    for (const player of this.players) {
+      acks[player.pedId] = player.ack;
+      players.push({ pedId: player.pedId, name: player.name });
+    }
+    return { type: 'snapshot', ...captureSnapshot(this.world), acks, players };
   }
 }
 
