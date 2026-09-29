@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Original GTA2 game files must never be committed (see README: asset packs)
+*.sty
+*.gmp
