@@ -1,9 +1,11 @@
-import type { PlayerInfo, PlayerInput, World } from '@game/shared';
+import type { GameEvent, PlayerInfo, PlayerInput, World } from '@game/shared';
 import type { TransformSnapshot } from '../render/transforms';
 
 export interface FrameState {
   /** Where to draw each entity this frame. */
   transforms: TransformSnapshot;
+  /** Events whose effects should start this frame. */
+  events: GameEvent[];
 }
 
 /** Where the world comes from: simulated locally, or received from a server. */

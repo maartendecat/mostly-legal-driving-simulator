@@ -1,6 +1,18 @@
 import * as THREE from 'three';
-import { Block, CAR_MODELS, PED_RADIUS, RoadMarking, type BlockMap, type Car, type Ped } from '@game/shared';
-import type { AssetPack, EntityView } from '../AssetPack';
+import {
+  Block,
+  CAR_MODELS,
+  PED_RADIUS,
+  RoadMarking,
+  type BlockMap,
+  type Car,
+  type GameEvent,
+  type Ped,
+  type Pickup,
+  type Projectile,
+  type WeaponId,
+} from '@game/shared';
+import type { AssetPack, EffectView, EntityView } from '../AssetPack';
 
 const GROUND_COLORS: Record<number, number> = {
   [Block.Road]: 0x3a3a3f,
@@ -10,11 +22,26 @@ const GROUND_COLORS: Record<number, number> = {
 };
 const BUILDING_COLORS = [0x9a6b52, 0x7d7f86, 0xb3a58a, 0x6a5a7a, 0x8a4f4a, 0x5f7468];
 const MARKING_COLOR = 0xe8e2c8;
+const WEAPON_COLORS: Record<WeaponId, number> = {
+  pistol: 0xd7dde0,
+  machineGun: 0x42a5f5,
+  rocketLauncher: 0xef5350,
+};
+/** Height at which projectiles fly, roughly hand height. */
+const PROJECTILE_HEIGHT = 0.35;
 
 /** Flat-coloured boxes. Needs no files, so it's always available and useful for testing gameplay. */
 export class PlaceholderPack implements AssetPack {
   readonly id = 'placeholder';
   readonly name = 'Placeholder shapes';
+
+  /** Projectiles are frequent and identical, so they share geometry and materials. */
+  private readonly bulletGeometry = new THREE.BoxGeometry(0.34, 0.08, 0.05);
+  private readonly bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffd400 });
+  private readonly rocketGeometry = new THREE.BoxGeometry(0.3, 0.09, 0.09);
+  private readonly rocketMaterial = new THREE.MeshLambertMaterial({ color: 0x9e9e9e });
+  private readonly flameGeometry = new THREE.BoxGeometry(0.16, 0.07, 0.07);
+  private readonly flameMaterial = new THREE.MeshBasicMaterial({ color: 0xff8c1a });
 
   async load(): Promise<void> {}
 
@@ -128,6 +155,69 @@ export class PlaceholderPack implements AssetPack {
     group.add(nose);
 
     return { object: group, dispose: () => disposeObject(group) };
+  }
+
+  createProjectileView(projectile: Projectile): EntityView {
+    const group = new THREE.Group();
+    if (projectile.kind === 'rocket') {
+      const body = new THREE.Mesh(this.rocketGeometry, this.rocketMaterial);
+      const flame = new THREE.Mesh(this.flameGeometry, this.flameMaterial);
+      flame.position.x = -0.22;
+      group.add(body, flame);
+    } else {
+      group.add(new THREE.Mesh(this.bulletGeometry, this.bulletMaterial));
+    }
+    group.children.forEach((child) => (child.position.z = PROJECTILE_HEIGHT));
+    // Shared resources: nothing to dispose per projectile.
+    return { object: group, dispose: () => {} };
+  }
+
+  createPickupView(pickup: Pickup): EntityView {
+    const group = new THREE.Group();
+    const color = WEAPON_COLORS[pickup.weapon];
+    const glow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.3, 24),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35 }),
+    );
+    glow.position.z = 0.02;
+    const crate = box(0.3, 0.3, 0.3, color);
+    group.add(glow, crate);
+    let time = Math.random() * 10;
+    return {
+      object: group,
+      update: (dt) => {
+        time += dt;
+        crate.rotation.z = time * 2;
+        crate.position.z = 0.35 + Math.sin(time * 3) * 0.06;
+      },
+      dispose: () => disposeObject(group),
+    };
+  }
+
+  createEffectView(event: GameEvent): EffectView | null {
+    const explosion = event.type === 'explosion';
+    const duration = explosion ? 0.6 : 0.15;
+    const startSize = explosion ? 0.3 : 0.08;
+    const endSize = explosion ? event.radius : 0.22;
+    const material = new THREE.MeshBasicMaterial({ color: explosion ? 0xff7a1a : 0xfff2a8, transparent: true });
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), material);
+    mesh.position.z = explosion ? 0.3 : PROJECTILE_HEIGHT;
+    const group = new THREE.Group();
+    group.add(mesh);
+    let age = 0;
+    return {
+      object: group,
+      update: (dt) => {
+        age += dt;
+        const t = Math.min(age / duration, 1);
+        const eased = 1 - (1 - t) * (1 - t);
+        mesh.scale.setScalar(startSize + (endSize - startSize) * eased);
+        material.opacity = 1 - t;
+        if (explosion) material.color.setHSL(0.08 - t * 0.06, 1, 0.55 - t * 0.3);
+        return t < 1;
+      },
+      dispose: () => disposeObject(group),
+    };
   }
 }
 

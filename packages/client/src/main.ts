@@ -1,4 +1,4 @@
-import { CAR_MODELS, DEFAULT_SERVER_PORT, carSpeed } from '@game/shared';
+import { CAR_MODELS, DEFAULT_SERVER_PORT, WEAPONS, carSpeed } from '@game/shared';
 import type { AssetPack } from './assets/AssetPack';
 import { PlaceholderPack } from './assets/placeholder/PlaceholderPack';
 import { Keyboard } from './input/Keyboard';
@@ -42,8 +42,8 @@ async function main(): Promise<void> {
     // Clamp long frames (e.g. background tab) so we don't simulate a huge backlog at once.
     const frameDt = Math.min((now - last) / 1000, 0.25);
     last = now;
-    const { transforms } = session.update(frameDt, () => keyboard.sample());
-    renderer.render(session.world, transforms, session.myPedId, frameDt);
+    const { transforms, events } = session.update(frameDt, () => keyboard.sample());
+    renderer.render(session.world, transforms, session.myPedId, frameDt, events);
     nameTags.update(nameTagsFor(session, transforms, renderer));
 
     if (frameDt > 0) fps += (1 / frameDt - fps) * 0.05;
@@ -85,14 +85,18 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
   const ped = session.myPedId === null ? undefined : world.peds.get(session.myPedId);
   const car = ped?.carId != null ? world.cars.get(ped.carId) : undefined;
   const status = car ? `Driving: ${CAR_MODELS[car.model].name}  ${Math.round(carSpeed(car) * 10)} km/h` : 'On foot';
+  const weapon = ped?.weapon ? `Weapon: ${WEAPONS[ped.weapon].name} · ${ped.ammo[ped.weapon] ?? 0}` : 'Unarmed (walk over a spinning crate)';
   const me = session.players.find((p) => p.pedId === session.myPedId);
   const others = session.players.filter((p) => p !== me).map((p) => p.name);
   return [
     status,
+    weapon,
     '',
     'Arrows/WASD  move / steer',
     'Enter or F   get in / out of car',
     'Space        handbrake',
+    'J or Ctrl    fire',
+    'Z / X        switch weapon',
     '',
     me && session instanceof NetworkSession ? `You are ${me.name}` : '',
     others.length > 0 ? `Also here: ${others.join(', ')}` : '',

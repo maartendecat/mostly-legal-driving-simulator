@@ -128,3 +128,19 @@ test('a connection gets no ped until it joins', async () => {
   assert.ok(!lurker.messages.some((m) => m.type === 'welcome' || m.type === 'snapshot'));
   lurker.close();
 });
+
+test('snapshots carry every event since the previous snapshot', async () => {
+  const client = new TestClient(server.port);
+  const { pedId } = await client.next('welcome');
+  // Arm the ped and stand it facing the city's west wall (cells x<1), 1.5 blocks away.
+  const ped = server.world.peds.get(pedId)!;
+  Object.assign(ped, { x: 2.5, y: 30.5, heading: Math.PI, weapon: 'machineGun', ammo: { machineGun: 10 } });
+
+  for (let seq = 1; seq <= 60; seq++) client.send({ type: 'input', seq, input: { ...NO_INPUT, fire: true } });
+  await client.next('snapshot', (s) => s.acks[pedId] === 60);
+  await new Promise((r) => setTimeout(r, 200)); // let the last bullets land
+
+  const impacts = client.messages.flatMap((m) => (m.type === 'snapshot' ? m.events : [])).filter((e) => e.type === 'impact' && e.ownerId === pedId);
+  assert.equal(impacts.length, 10, 'one impact per bullet, none lost between snapshots');
+  client.close();
+});

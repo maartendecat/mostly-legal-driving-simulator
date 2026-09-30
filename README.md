@@ -20,7 +20,9 @@ several players in the same city. *Play offline* runs single-player without a se
 `?offline` to force single-player, `?server=ws://host:port` to pick a server, `?lag=200` to
 simulate a slow connection.
 
-Controls: arrows/WASD to move or steer, Enter/F to get in or out of a car, Space for the handbrake.
+Controls: arrows/WASD to move or steer, Enter/F to get in or out of a car, Space for the handbrake,
+J or Ctrl to fire, Z/X to switch weapons. Weapons lie around the city as spinning crates: grey is a
+pistol, blue a machine gun, red a rocket launcher.
 Add `?seed=42` to the URL for a different city.
 
 ## Layout
@@ -65,7 +67,8 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 1. ✅ Shared simulation, placeholder renderer, driving and walking offline
 2. ✅ Multiplayer: authoritative WebSocket server, client-side prediction with reconciliation,
    snapshot interpolation for other players, join screen with player names
-3. Weapons, damage, respawn, Frag mode, player arrows
+3. Combat: ✅ 3a weapons (pistol, machine gun, rocket launcher) and pickups; next damage and
+   respawning, Frag mode, player arrows
 4. Lobbies and matchmaking; map editor
 5. Open asset pack, then the classic pack importer
 6. Netcode tuning: WebRTC/WebTransport, delta compression, lag compensation

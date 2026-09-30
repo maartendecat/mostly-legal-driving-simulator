@@ -1,4 +1,5 @@
 import type { Vec2 } from './math';
+import type { WeaponId } from './weapons';
 
 /** What a map cell is made of. Gameplay only cares about the kind; asset packs decide how it looks. */
 export const Block = {
@@ -23,6 +24,12 @@ export interface CarSpawn {
   heading: number;
 }
 
+export interface PickupSpawn {
+  x: number;
+  y: number;
+  weapon: WeaponId;
+}
+
 /**
  * A city map: a grid of 1x1 unit blocks. +x is east, +y is north.
  * Buildings have a height in levels (1 level = 1 unit). `variants` is free-form per-cell style
@@ -36,6 +43,7 @@ export interface BlockMap {
   variants: Uint8Array;
   pedSpawns: Vec2[];
   carSpawns: CarSpawn[];
+  pickupSpawns: PickupSpawn[];
 }
 
 export function createMap(width: number, height: number): BlockMap {
@@ -48,6 +56,7 @@ export function createMap(width: number, height: number): BlockMap {
     variants: new Uint8Array(size),
     pedSpawns: [],
     carSpawns: [],
+    pickupSpawns: [],
   };
 }
 

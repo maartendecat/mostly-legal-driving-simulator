@@ -1,5 +1,6 @@
-import { Block, RoadMarking, createMap, setCell, type BlockKind, type BlockMap, type CarSpawn } from './map';
-import { randomInt, nextRandom, type Vec2 } from './math';
+import { Block, RoadMarking, createMap, setCell, type BlockKind, type BlockMap, type CarSpawn, type PickupSpawn } from './map';
+import { randomInt, nextRandom, randomPick, type Vec2 } from './math';
+import type { WeaponId } from './weapons';
 
 /** Distance between parallel roads, in cells. */
 const PERIOD = 12;
@@ -9,6 +10,9 @@ const LOT = PERIOD - ROAD - 2;
 const BORDER_HEIGHT = 6;
 const CAR_COUNT = 28;
 const PED_SPAWN_COUNT = 24;
+const PICKUP_COUNT = 16;
+/** Weighted: pistols are common, rocket launchers rare. */
+const PICKUP_WEAPONS: WeaponId[] = ['pistol', 'pistol', 'pistol', 'machineGun', 'machineGun', 'rocketLauncher'];
 
 /**
  * Generates a placeholder city: a grid of 3-wide roads with pavements around city blocks that
@@ -51,6 +55,7 @@ export function generateCity(seed: number, blocks = 6): BlockMap {
 
   map.carSpawns = pickCarSpawns(map, rng);
   map.pedSpawns = pickPedSpawns(map, rng);
+  map.pickupSpawns = pickPickupSpawns(map, rng);
   return map;
 }
 
@@ -108,13 +113,21 @@ function pickCarSpawns(map: BlockMap, rng: { rngState: number }): CarSpawn[] {
 }
 
 function pickPedSpawns(map: BlockMap, rng: { rngState: number }): Vec2[] {
-  const candidates: Vec2[] = [];
+  return pickSpread(pavementCells(map), rng, PED_SPAWN_COUNT, 6);
+}
+
+function pickPickupSpawns(map: BlockMap, rng: { rngState: number }): PickupSpawn[] {
+  return pickSpread(pavementCells(map), rng, PICKUP_COUNT, 8).map((p) => ({ ...p, weapon: randomPick(rng, PICKUP_WEAPONS) }));
+}
+
+function pavementCells(map: BlockMap): Vec2[] {
+  const cells: Vec2[] = [];
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
-      if (map.kinds[y * map.width + x] === Block.Pavement) candidates.push({ x: x + 0.5, y: y + 0.5 });
+      if (map.kinds[y * map.width + x] === Block.Pavement) cells.push({ x: x + 0.5, y: y + 0.5 });
     }
   }
-  return pickSpread(candidates, rng, PED_SPAWN_COUNT, 6);
+  return cells;
 }
 
 /** Picks up to `count` random candidates that are at least `minDistance` apart. */

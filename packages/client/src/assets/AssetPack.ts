@@ -1,11 +1,19 @@
 import type { Object3D } from 'three';
-import type { BlockMap, Car, Ped } from '@game/shared';
+import type { BlockMap, Car, GameEvent, Ped, Pickup, Projectile } from '@game/shared';
 
 /** A renderable object for one game entity. The renderer positions and rotates `object` each frame. */
 export interface EntityView {
   readonly object: Object3D;
   /** Per-frame animation hook (wheels, walk cycle, damage, ...). */
   update?(dt: number): void;
+  dispose(): void;
+}
+
+/** A short-lived visual effect (spark, explosion). Positioned once by the renderer when spawned. */
+export interface EffectView {
+  readonly object: Object3D;
+  /** Advances the animation; returns false once the effect has finished. */
+  update(dt: number): boolean;
   dispose(): void;
 }
 
@@ -27,4 +35,8 @@ export interface AssetPack {
   buildMap(map: BlockMap): Object3D;
   createCarView(car: Car): EntityView;
   createPedView(ped: Ped): EntityView;
+  createProjectileView(projectile: Projectile): EntityView;
+  createPickupView(pickup: Pickup): EntityView;
+  /** The effect for a game event, or null if this pack shows nothing for it. */
+  createEffectView(event: GameEvent): EffectView | null;
 }

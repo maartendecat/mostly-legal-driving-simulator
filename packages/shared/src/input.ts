@@ -9,6 +9,8 @@ export interface PlayerInput {
   handbrake: boolean;
   /** Enter or exit a vehicle. */
   enter: boolean;
+  weaponNext: boolean;
+  weaponPrev: boolean;
 }
 
 export const NO_INPUT: Readonly<PlayerInput> = Object.freeze({
@@ -19,4 +21,6 @@ export const NO_INPUT: Readonly<PlayerInput> = Object.freeze({
   fire: false,
   handbrake: false,
   enter: false,
+  weaponNext: false,
+  weaponPrev: false,
 });

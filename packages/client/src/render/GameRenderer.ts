@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { carSpeed, type BlockMap, type World } from '@game/shared';
-import type { AssetPack, EntityView } from '../assets/AssetPack';
+import { carSpeed, isPickupAvailable, type BlockMap, type GameEvent, type World } from '@game/shared';
+import type { AssetPack, EffectView, EntityView } from '../assets/AssetPack';
 import type { Transform, TransformSnapshot } from './transforms';
 
 /** Field of view in degrees across the shorter side of the window. */
@@ -22,6 +22,9 @@ export class GameRenderer {
   private readonly camera = new THREE.PerspectiveCamera(FIELD_OF_VIEW, 1, 0.1, 200);
   private readonly carViews = new Map<number, EntityView>();
   private readonly pedViews = new Map<number, EntityView>();
+  private readonly projectileViews = new Map<number, EntityView>();
+  private readonly pickupViews = new Map<number, EntityView>();
+  private readonly effects = new Set<EffectView>();
   private mapObject: THREE.Object3D | null = null;
   private cameraHeight = BASE_CAMERA_HEIGHT;
   private readonly lookahead = new THREE.Vector2();
@@ -55,10 +58,13 @@ export class GameRenderer {
   /**
    * @param transforms where to draw each entity this frame (already interpolated)
    * @param focusPedId the ped the camera follows
+   * @param events events to show as effects, starting this frame
    */
-  render(world: World, transforms: TransformSnapshot, focusPedId: number | null, frameDt: number): void {
+  render(world: World, transforms: TransformSnapshot, focusPedId: number | null, frameDt: number, events: readonly GameEvent[] = []): void {
     this.syncViews(this.carViews, world.cars, (car) => this.pack.createCarView(car));
     this.syncViews(this.pedViews, world.peds, (ped) => this.pack.createPedView(ped));
+    this.syncViews(this.projectileViews, world.projectiles, (p) => this.pack.createProjectileView(p));
+    this.syncViews(this.pickupViews, world.pickups, (p) => this.pack.createPickupView(p));
 
     for (const car of world.cars.values()) this.place(this.carViews.get(car.id)!, transforms.get(car.id) ?? car, frameDt);
     for (const ped of world.peds.values()) {
@@ -66,6 +72,14 @@ export class GameRenderer {
       view.object.visible = ped.carId === null;
       this.place(view, transforms.get(ped.id) ?? ped, frameDt);
     }
+    for (const p of world.projectiles.values()) this.place(this.projectileViews.get(p.id)!, transforms.get(p.id) ?? p, frameDt);
+    for (const pickup of world.pickups.values()) {
+      const view = this.pickupViews.get(pickup.id)!;
+      view.object.visible = isPickupAvailable(world, pickup);
+      view.object.position.set(pickup.x, pickup.y, 0);
+      view.update?.(frameDt);
+    }
+    this.updateEffects(events, frameDt);
 
     this.updateCamera(world, focusPedId, frameDt);
     this.renderer.render(this.scene, this.camera);
@@ -85,6 +99,22 @@ export class GameRenderer {
     view.object.position.set(transform.x, transform.y, 0);
     view.object.rotation.z = transform.heading;
     view.update?.(frameDt);
+  }
+
+  private updateEffects(events: readonly GameEvent[], frameDt: number): void {
+    for (const event of events) {
+      const effect = this.pack.createEffectView(event);
+      if (!effect) continue;
+      effect.object.position.set(event.x, event.y, 0);
+      this.effects.add(effect);
+      this.scene.add(effect.object);
+    }
+    for (const effect of this.effects) {
+      if (effect.update(frameDt)) continue;
+      this.scene.remove(effect.object);
+      effect.dispose();
+      this.effects.delete(effect);
+    }
   }
 
   private updateCamera(world: World, focusPedId: number | null, frameDt: number): void {

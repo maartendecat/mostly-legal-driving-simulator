@@ -13,6 +13,7 @@ import {
   removePed,
   spawnPed,
   stepWorld,
+  type GameEvent,
   type PlayerInfo,
   type PlayerInput,
   type ServerMessage,
@@ -49,6 +50,8 @@ export class GameServer {
   private lastTime = performance.now();
   private accumulator = 0;
   private joinCount = 0;
+  /** Events since the last snapshot; snapshots go out every few ticks, events happen every tick. */
+  private pendingEvents: GameEvent[] = [];
 
   constructor(private readonly options: GameServerOptions) {
     this.world = createWorld(generateCity(options.seed), options.seed);
@@ -124,7 +127,7 @@ export class GameServer {
       tickRate: TICK_RATE,
       snapshotEveryTicks: SNAPSHOT_EVERY_TICKS,
     });
-    send(socket, this.snapshotMessage());
+    send(socket, this.snapshotMessage([]));
     return player;
   }
 
@@ -160,23 +163,25 @@ export class GameServer {
       inputs.set(player.pedId, player.input);
     }
     stepWorld(this.world, inputs);
+    this.pendingEvents.push(...this.world.events);
 
     if (this.world.tick % SNAPSHOT_EVERY_TICKS === 0 && this.players.size > 0) {
-      const message = JSON.stringify(this.snapshotMessage());
+      const message = JSON.stringify(this.snapshotMessage(this.pendingEvents));
+      this.pendingEvents = [];
       for (const player of this.players) {
         if (player.socket.readyState === WebSocket.OPEN) player.socket.send(message);
       }
     }
   }
 
-  private snapshotMessage(): ServerMessage {
+  private snapshotMessage(events: GameEvent[]): ServerMessage {
     const acks: Record<number, number> = {};
     const players: PlayerInfo[] = [];
     for (const player of this.players) {
       acks[player.pedId] = player.ack;
       players.push({ pedId: player.pedId, name: player.name });
     }
-    return { type: 'snapshot', ...captureSnapshot(this.world), acks, players };
+    return { type: 'snapshot', ...captureSnapshot(this.world), acks, players, events };
   }
 }
 

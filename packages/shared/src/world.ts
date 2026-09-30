@@ -1,16 +1,16 @@
+import { collectPickups, spawnPickup, stepProjectiles, updateWeapons, type GameEvent, type Pickup, type Projectile } from './combat';
 import { NO_INPUT, type PlayerInput } from './input';
 import { isSolidAt, type BlockMap } from './map';
 import { clamp, nextRandom, randomPick, wrapAngle } from './math';
+import { TICK_DT } from './time';
 import { CAR_MODELS, type CarModel, type CarModelId } from './vehicles';
+import type { WeaponId } from './weapons';
 
 /**
  * The game simulation. It is plain data plus pure-ish step functions with no rendering or
  * networking, so the exact same code runs on the server (authoritative) and in the browser
  * (prediction). Headings are in radians, 0 = east, counter-clockwise positive.
  */
-
-export const TICK_RATE = 60;
-export const TICK_DT = 1 / TICK_RATE;
 
 export const PED_RADIUS = 0.18;
 const PED_WALK_SPEED = 3;
@@ -39,8 +39,15 @@ export interface Ped {
   heading: number;
   carId: number | null;
   color: number;
+  /** The weapon in hand, or null when unarmed. */
+  weapon: WeaponId | null;
+  ammo: Partial<Record<WeaponId, number>>;
+  /** Ticks until the next shot is allowed. */
+  fireCooldown: number;
   /** Whether enter/exit was held last tick, so holding the key only toggles once. */
   enterHeld: boolean;
+  /** Same for weapon switching. */
+  switchHeld: boolean;
 }
 
 export interface Car {
@@ -61,6 +68,10 @@ export interface World {
   map: BlockMap;
   peds: Map<number, Ped>;
   cars: Map<number, Car>;
+  projectiles: Map<number, Projectile>;
+  pickups: Map<number, Pickup>;
+  /** Events from the most recent tick only; cleared at the start of every step. */
+  events: GameEvent[];
   nextId: number;
   rngState: number;
 }
@@ -71,12 +82,16 @@ export function createWorld(map: BlockMap, seed = 1): World {
     map,
     peds: new Map(),
     cars: new Map(),
+    projectiles: new Map(),
+    pickups: new Map(),
+    events: [],
     nextId: 1,
     rngState: seed >>> 0,
   };
   for (const spawn of map.carSpawns) {
     spawnCar(world, randomPick(world, SPAWN_MODELS), spawn.x, spawn.y, spawn.heading);
   }
+  for (const spawn of map.pickupSpawns) spawnPickup(world, spawn.weapon, spawn.x, spawn.y);
   return world;
 }
 
@@ -112,7 +127,11 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
     heading: nextRandom(world) * Math.PI * 2 - Math.PI,
     carId: null,
     color: PED_COLORS[world.peds.size % PED_COLORS.length]!,
+    weapon: null,
+    ammo: {},
+    fireCooldown: 0,
     enterHeld: false,
+    switchHeld: false,
   };
   world.peds.set(ped.id, ped);
   return ped;
@@ -122,8 +141,11 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
 export function cloneWorld(world: World): World {
   return {
     ...world,
-    peds: new Map([...world.peds].map(([id, ped]) => [id, { ...ped }])),
+    peds: new Map([...world.peds].map(([id, ped]) => [id, { ...ped, ammo: { ...ped.ammo } }])),
     cars: new Map([...world.cars].map(([id, car]) => [id, { ...car }])),
+    projectiles: new Map([...world.projectiles].map(([id, p]) => [id, { ...p }])),
+    pickups: new Map([...world.pickups].map(([id, p]) => [id, { ...p }])),
+    events: [],
   };
 }
 
@@ -142,16 +164,22 @@ export function carSpeed(car: Car): number {
 
 /** Advances the world by one tick. `inputs` maps ped ids to that player's input for this tick. */
 export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>, dt = TICK_DT): void {
+  world.events = [];
   for (const ped of world.peds.values()) {
     const input = inputs.get(ped.id) ?? NO_INPUT;
     const enterPressed = input.enter && !ped.enterHeld;
     ped.enterHeld = input.enter;
+    const switchHeld = (input.weaponNext ? 1 : 0) - (input.weaponPrev ? 1 : 0);
+    const switchDirection = ped.switchHeld ? 0 : switchHeld;
+    ped.switchHeld = switchHeld !== 0;
+
     if (ped.carId === null) {
       if (enterPressed && tryEnterCar(world, ped)) continue;
       walkPed(world.map, ped, input, dt);
     } else if (enterPressed) {
       tryExitCar(world, ped);
     }
+    updateWeapons(world, ped, input, switchDirection);
   }
 
   for (const car of world.cars.values()) {
@@ -171,6 +199,9 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
       for (const other of world.cars.values()) pushPedOutOfCar(world.map, ped, other);
     }
   }
+
+  collectPickups(world);
+  stepProjectiles(world, dt);
 
   world.tick++;
 }
@@ -315,6 +346,16 @@ function driveCar(map: BlockMap, car: Car, input: PlayerInput, dt: number): void
   const nh = car.heading + car.angVel * dt;
   if (carCollides(map, m, car.x, car.y, nh)) car.angVel = 0;
   else car.heading = wrapAngle(nh);
+}
+
+/** Whether a point lies inside the car's rectangle. */
+export function carContainsPoint(car: Car, x: number, y: number): boolean {
+  const m = CAR_MODELS[car.model];
+  const dx = x - car.x;
+  const dy = y - car.y;
+  const cos = Math.cos(car.heading);
+  const sin = Math.sin(car.heading);
+  return Math.abs(dx * cos + dy * sin) <= m.length / 2 && Math.abs(-dx * sin + dy * cos) <= m.width / 2;
 }
 
 /** Points on the car's outline (in half-length/half-width units) that are tested against walls. */

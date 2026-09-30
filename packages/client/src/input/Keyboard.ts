@@ -1,4 +1,4 @@
-import type { PlayerInput } from '@game/shared';
+import { NO_INPUT, type PlayerInput } from '@game/shared';
 
 const BINDINGS: Record<string, keyof PlayerInput> = {
   ArrowUp: 'up',
@@ -15,6 +15,8 @@ const BINDINGS: Record<string, keyof PlayerInput> = {
   ControlLeft: 'fire',
   ControlRight: 'fire',
   KeyJ: 'fire',
+  KeyZ: 'weaponPrev',
+  KeyX: 'weaponNext',
 };
 
 /** Turns keyboard state into a PlayerInput once per simulation tick. */
@@ -35,7 +37,7 @@ export class Keyboard {
   }
 
   sample(): PlayerInput {
-    const input: PlayerInput = { up: false, down: false, left: false, right: false, fire: false, handbrake: false, enter: false };
+    const input: PlayerInput = { ...NO_INPUT };
     for (const code of this.held) input[BINDINGS[code]!] = true;
     for (const code of this.tapped) input[BINDINGS[code]!] = true;
     this.tapped.clear();

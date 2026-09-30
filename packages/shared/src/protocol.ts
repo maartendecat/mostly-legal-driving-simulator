@@ -1,3 +1,4 @@
+import type { GameEvent, Pickup, Projectile } from './combat';
 import type { PlayerInput } from './input';
 import type { Car, Ped, World } from './world';
 
@@ -19,8 +20,12 @@ export interface PlayerInfo {
 
 export interface Snapshot {
   tick: number;
+  /** So entities the client predicts get ids that can't clash with the server's. */
+  nextId: number;
   cars: Car[];
   peds: Ped[];
+  projectiles: Projectile[];
+  pickups: Pickup[];
 }
 
 /**
@@ -41,23 +46,32 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'welcome'; pedId: number; seed: number; tickRate: number; snapshotEveryTicks: number }
-  /** `acks` maps ped id to the `seq` of that player's last input included in this snapshot. */
-  | ({ type: 'snapshot'; acks: Record<number, number>; players: PlayerInfo[] } & Snapshot)
+  /**
+   * `acks` maps ped id to the `seq` of that player's last input included in this snapshot.
+   * `events` are all events since the previous snapshot.
+   */
+  | ({ type: 'snapshot'; acks: Record<number, number>; players: PlayerInfo[]; events: GameEvent[] } & Snapshot)
   | { type: 'pong'; time: number };
 
 export function captureSnapshot(world: World): Snapshot {
   return {
     tick: world.tick,
+    nextId: world.nextId,
     cars: [...world.cars.values()],
     peds: [...world.peds.values()],
+    projectiles: [...world.projectiles.values()],
+    pickups: [...world.pickups.values()],
   };
 }
 
 /** Replaces the world's entities with those from a server snapshot. */
 export function applySnapshot(world: World, snapshot: Snapshot): void {
   world.tick = snapshot.tick;
+  world.nextId = snapshot.nextId;
   world.cars = new Map(snapshot.cars.map((car) => [car.id, car]));
   world.peds = new Map(snapshot.peds.map((ped) => [ped.id, ped]));
+  world.projectiles = new Map(snapshot.projectiles.map((p) => [p.id, p]));
+  world.pickups = new Map(snapshot.pickups.map((p) => [p.id, p]));
 }
 
 /** Parses an untrusted client message, returning null if it's malformed. */
@@ -83,6 +97,8 @@ export function parseClientMessage(data: string): ClientMessage | null {
         fire: input.fire === true,
         handbrake: input.handbrake === true,
         enter: input.enter === true,
+        weaponNext: input.weaponNext === true,
+        weaponPrev: input.weaponPrev === true,
       },
     };
   }

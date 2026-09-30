@@ -6,6 +6,7 @@ import {
   generateCity,
   stepWorld,
   type ClientMessage,
+  type GameEvent,
   type PlayerInfo,
   type PlayerInput,
   type ServerMessage,
@@ -36,7 +37,8 @@ const PING_INTERVAL_MS = 2000;
  * prediction to the server's state and replay the inputs it hasn't seen yet (reconciliation), so
  * any mistake in our prediction is corrected within one round trip.
  *
- * Our own ped and car are drawn from the prediction. Everything else is drawn slightly in the past,
+ * Our own ped, car and projectiles are drawn from the prediction, as are pickups (so one we walk
+ * over disappears at once). Everything else is drawn slightly in the past,
  * blended between buffered server snapshots (see SnapshotBuffer), so other players move smoothly
  * even when snapshots arrive unevenly.
  */
@@ -51,8 +53,13 @@ export class NetworkSession implements GameSession {
   private readonly snapshots: SnapshotBuffer;
   private accumulator = 0;
   private playerList: PlayerInfo[] = [];
+  /** Effects of our own shots: shown as soon as the server reports them. */
+  private dueEvents: GameEvent[] = [];
+  /** Everyone else's: shown when the (delayed) render time reaches them, to line up with what's drawn. */
+  private scheduledEvents: GameEvent[] = [];
   private pingMs: number | null = null;
   private connected = true;
+  private readonly pinger: ReturnType<typeof setInterval>;
 
   /** Connects to a game server and resolves once the server has welcomed us. */
   static connect(url: string, { name, timeoutMs = 3000, lagMs = 0 }: ConnectOptions): Promise<NetworkSession> {
@@ -96,12 +103,20 @@ export class NetworkSession implements GameSession {
       const message = JSON.parse(event.data as string) as ServerMessage;
       this.delayed(() => this.onMessage(message));
     });
-    socket.addEventListener('close', () => (this.connected = false));
-    const pinger = setInterval(() => {
-      if (!this.connected) return clearInterval(pinger);
-      this.send({ type: 'ping', time: performance.now() });
-    }, PING_INTERVAL_MS);
+    socket.addEventListener('close', () => this.onClose());
+    this.pinger = setInterval(() => this.send({ type: 'ping', time: performance.now() }), PING_INTERVAL_MS);
     this.send({ type: 'ping', time: performance.now() });
+  }
+
+  /** Leaves the game. */
+  close(): void {
+    this.socket.close();
+    this.onClose();
+  }
+
+  private onClose(): void {
+    this.connected = false;
+    clearInterval(this.pinger);
   }
 
   get world(): World {
@@ -133,21 +148,46 @@ export class NetworkSession implements GameSession {
     }
 
     // Everyone else: slightly in the past, blended between buffered snapshots.
-    const transforms = this.snapshots.sample(performance.now());
+    const now = performance.now();
+    const transforms = this.snapshots.sample(now);
+    const display: World = {
+      ...this.serverWorld,
+      tick: this.predicted.tick,
+      peds: new Map(this.serverWorld.peds),
+      cars: new Map(this.serverWorld.cars),
+      projectiles: new Map([...this.serverWorld.projectiles].filter(([, p]) => p.ownerId !== this.myPedId)),
+      pickups: this.predicted.pickups,
+    };
     // Ourselves: blend between the last two predicted ticks.
-    const display: World = { ...this.serverWorld, peds: new Map(this.serverWorld.peds), cars: new Map(this.serverWorld.cars) };
     const alpha = this.accumulator / TICK_DT;
+    const drawPredicted = (entity: { id: number; x: number; y: number; heading: number }) =>
+      transforms.set(entity.id, lerpTransform(this.previousPredicted.get(entity.id) ?? entity, entity, alpha));
     for (const id of this.predictedIds()) {
       const ped = this.predicted.peds.get(id);
       const car = this.predicted.cars.get(id);
-      const entity = ped ?? car;
-      if (!entity) continue;
       if (ped) display.peds.set(id, ped);
       if (car) display.cars.set(id, car);
-      transforms.set(id, lerpTransform(this.previousPredicted.get(id) ?? entity, entity, alpha));
+      const entity = ped ?? car;
+      if (entity) drawPredicted(entity);
+    }
+    for (const projectile of this.predicted.projectiles.values()) {
+      if (projectile.ownerId !== this.myPedId) continue;
+      display.projectiles.set(projectile.id, projectile);
+      drawPredicted(projectile);
     }
     this.displayWorld = display;
-    return { transforms };
+    return { transforms, events: this.takeEvents(this.snapshots.renderTick(now)) };
+  }
+
+  private takeEvents(renderTick: number): GameEvent[] {
+    const events = this.dueEvents;
+    this.dueEvents = [];
+    this.scheduledEvents = this.scheduledEvents.filter((event) => {
+      if (event.tick > renderTick) return true;
+      events.push(event);
+      return false;
+    });
+    return events;
   }
 
   /**
@@ -172,6 +212,7 @@ export class NetworkSession implements GameSession {
     applySnapshot(this.serverWorld, snapshot);
     this.snapshots.push(snapshot.tick, captureTransforms(this.serverWorld), performance.now());
     this.playerList = snapshot.players;
+    for (const event of snapshot.events) (event.ownerId === this.myPedId ? this.dueEvents : this.scheduledEvents).push(event);
 
     // Reconcile: restart the prediction from the server's state and replay unacknowledged inputs.
     const ack = snapshot.acks[this.myPedId] ?? 0;

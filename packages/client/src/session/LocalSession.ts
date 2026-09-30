@@ -1,4 +1,4 @@
-import { TICK_DT, createWorld, generateCity, spawnPed, stepWorld, type PlayerInfo, type PlayerInput, type World } from '@game/shared';
+import { TICK_DT, createWorld, generateCity, spawnPed, stepWorld, type GameEvent, type PlayerInfo, type PlayerInput, type World } from '@game/shared';
 import { captureTransforms, interpolateTransforms, type TransformSnapshot } from '../render/transforms';
 import type { FrameState, GameSession } from './GameSession';
 
@@ -22,11 +22,13 @@ export class LocalSession implements GameSession {
 
   update(frameDt: number, sampleInput: () => PlayerInput): FrameState {
     this.accumulator += frameDt;
+    const events: GameEvent[] = [];
     while (this.accumulator >= TICK_DT) {
       this.previous = captureTransforms(this.world);
       stepWorld(this.world, new Map([[this.myPedId, sampleInput()]]));
+      events.push(...this.world.events);
       this.accumulator -= TICK_DT;
     }
-    return { transforms: interpolateTransforms(this.previous, this.world, this.accumulator / TICK_DT) };
+    return { transforms: interpolateTransforms(this.previous, this.world, this.accumulator / TICK_DT), events };
   }
 }
