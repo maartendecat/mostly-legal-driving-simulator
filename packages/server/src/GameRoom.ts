@@ -9,7 +9,9 @@ import {
   TICK_RATE,
   captureSnapshot,
   createWorld,
+  encodeDelta,
   generateCity,
+  quantizeSnapshot,
   removePed,
   spawnPed,
   stepWorld,
@@ -19,6 +21,7 @@ import {
   type PlayerInput,
   type RoomInfo,
   type ServerMessage,
+  type Snapshot,
   type World,
 } from '@game/shared';
 
@@ -41,6 +44,8 @@ export interface Player {
   input: PlayerInput;
   /** `seq` of the last input applied, reported back to the client for reconciliation. */
   ack: number;
+  /** Until the next broadcast, this player hasn't got the snapshot deltas are made against. */
+  needsFullSnapshot: boolean;
 }
 
 /**
@@ -56,6 +61,10 @@ export class GameRoom {
   private pendingEvents: GameEvent[] = [];
   /** World tick at which the room last became empty, or null while anyone's in it. */
   private emptySince: number | null;
+  /** The last snapshot broadcast (quantized): deltas are made against it. */
+  private lastSent: Snapshot | null = null;
+  private lastPlayers = '';
+  private lastMatch = '';
 
   constructor(readonly options: GameRoomOptions) {
     this.world = createWorld(generateCity(options.seed), options.seed);
@@ -101,6 +110,7 @@ export class GameRoom {
       queue: [],
       input: { ...NO_INPUT },
       ack: 0,
+      needsFullSnapshot: true,
     };
     this.players.add(player);
     this.emptySince = null;
@@ -114,7 +124,8 @@ export class GameRoom {
       tickRate: TICK_RATE,
       snapshotEveryTicks: SNAPSHOT_EVERY_TICKS,
     });
-    send(socket, this.snapshotMessage([]));
+    // Something to show straight away; the next broadcast brings them in sync for deltas.
+    send(socket, { type: 'snapshot', ...quantizeSnapshot(captureSnapshot(this.world)), ...this.extras([]) });
     return player;
   }
 
@@ -148,15 +159,46 @@ export class GameRoom {
     this.match.update(this.world);
     this.pendingEvents.push(...this.world.events);
 
-    if (this.world.tick % SNAPSHOT_EVERY_TICKS === 0 && this.players.size > 0) {
-      const message = JSON.stringify(this.snapshotMessage(this.pendingEvents));
+    if (this.world.tick % SNAPSHOT_EVERY_TICKS === 0 && this.players.size > 0) this.broadcast();
+    else if (this.players.size === 0) {
       this.pendingEvents = [];
-      for (const player of this.players) {
-        if (player.socket.readyState === WebSocket.OPEN) player.socket.send(message);
-      }
-    } else if (this.players.size === 0) {
-      this.pendingEvents = [];
+      this.lastSent = null;
     }
+  }
+
+  /**
+   * Sends everyone what changed since the last broadcast; players who just joined get the full
+   * snapshot instead. Messages are built once and shared by all players.
+   */
+  private broadcast(): void {
+    const next = quantizeSnapshot(captureSnapshot(this.world));
+    const extras = this.extras(this.pendingEvents);
+    const players = JSON.stringify(extras.players);
+    const match = JSON.stringify(extras.match);
+    let full: string | null = null;
+    let delta: string | null = null;
+    for (const player of this.players) {
+      if (player.socket.readyState !== WebSocket.OPEN) continue;
+      if (player.needsFullSnapshot || !this.lastSent) {
+        full ??= JSON.stringify({ type: 'snapshot', ...next, ...extras } satisfies ServerMessage);
+        player.socket.send(full);
+        player.needsFullSnapshot = false;
+      } else {
+        delta ??= JSON.stringify({
+          type: 'delta',
+          ...encodeDelta(this.lastSent, next),
+          acks: extras.acks,
+          events: extras.events,
+          ...(players !== this.lastPlayers ? { players: extras.players } : {}),
+          ...(match !== this.lastMatch ? { match: extras.match } : {}),
+        } satisfies ServerMessage);
+        player.socket.send(delta);
+      }
+    }
+    this.lastSent = next;
+    this.lastPlayers = players;
+    this.lastMatch = match;
+    this.pendingEvents = [];
   }
 
   /** Appends " 2", " 3", ... if another player in this room already uses this name. */
@@ -170,7 +212,8 @@ export class GameRoom {
     }
   }
 
-  private snapshotMessage(events: GameEvent[]): ServerMessage {
+  /** The parts of a snapshot message that aren't world state. */
+  private extras(events: GameEvent[]) {
     const acks: Record<number, number> = {};
     const players: PlayerInfo[] = [];
     for (const player of this.players) {
@@ -178,7 +221,7 @@ export class GameRoom {
       const score = this.match.scores.get(player.pedId) ?? { frags: 0, deaths: 0, points: 0, itTicks: 0 };
       players.push({ pedId: player.pedId, name: player.name, ...score });
     }
-    return { type: 'snapshot', ...captureSnapshot(this.world), acks, players, match: this.match.state, events };
+    return { acks, players, match: this.match.state, events };
   }
 }
 

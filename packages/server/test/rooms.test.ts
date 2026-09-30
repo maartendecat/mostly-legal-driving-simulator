@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { WebSocket } from 'ws';
 import { MAX_PLAYERS_PER_ROOM, NO_INPUT, type ServerMessage } from '@game/shared';
+import { asFullSnapshots } from './deltas';
 import { GameServer } from '../src/GameServer';
 
 type Of<T extends ServerMessage['type']> = Extract<ServerMessage, { type: T }>;
@@ -14,7 +15,7 @@ class Client {
 
   constructor(port: number) {
     this.socket = new WebSocket(`ws://localhost:${port}`);
-    this.socket.on('message', (data) => this.messages.push(JSON.parse(data.toString()) as ServerMessage));
+    this.socket.on('message', (data) => this.messages.push(...asFullSnapshots(this, JSON.parse(data.toString()) as ServerMessage)));
     this.opened = new Promise((resolve) => this.socket.once('open', () => resolve()));
   }
 

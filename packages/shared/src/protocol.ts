@@ -1,4 +1,5 @@
 import type { GameEvent, Pickup, Projectile } from './combat';
+import type { SnapshotDelta } from './delta';
 import type { PlayerInput } from './input';
 import { MATCH_MODES, type MatchMode, type MatchPhase, type MatchState, type PlayerScore } from './match';
 import type { Car, Ped, World } from './world';
@@ -85,6 +86,11 @@ export type ServerMessage =
    * `events` are all events since the previous snapshot.
    */
   | ({ type: 'snapshot'; acks: Record<number, number>; players: PlayerInfo[]; match: MatchState; events: GameEvent[] } & Snapshot)
+  /**
+   * What changed since the previous snapshot or delta this client received. `players` and `match`
+   * are only included when they changed.
+   */
+  | ({ type: 'delta'; acks: Record<number, number>; players?: PlayerInfo[]; match?: MatchState; events: GameEvent[] } & SnapshotDelta)
   | { type: 'pong'; time: number };
 
 export function captureSnapshot(world: World): Snapshot {

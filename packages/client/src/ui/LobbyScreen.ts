@@ -101,6 +101,12 @@ export function showLobbyScreen({ serverUrl, lagMs, playOffline }: LobbyScreenOp
         lobby.onRooms = renderRooms;
         renderRooms(lobby.rooms);
         createButton.disabled = false;
+        // Opened through an invite link (…#room=abc): go straight into that room.
+        const invited = new URLSearchParams(location.hash.slice(1)).get('room');
+        if (invited) {
+          if (lobby.rooms.some((r) => r.id === invited)) enter((l) => l.join(playerName(), invited));
+          else error.textContent = 'The room from your invite link is gone; pick another one.';
+        }
       } catch (e) {
         console.warn(e);
         status.textContent = `Can't reach the game server at ${serverUrl}. Is it running? (npm run server)`;

@@ -1,4 +1,6 @@
 import { DEFAULT_MATCH_SETTINGS, DEFAULT_SERVER_PORT, MATCH_MODES, TICK_RATE, secondsToTicks, type MatchMode } from '@game/shared';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { GameServer } from './GameServer';
 
 const port = Number(process.env.PORT ?? DEFAULT_SERVER_PORT);
@@ -16,9 +18,14 @@ if (process.env.SCORE_LIMIT !== undefined && modes.length === 1) {
 }
 const minutes = Number(process.env.TIME_LIMIT ?? DEFAULT_MATCH_SETTINGS.timeLimitTicks / TICK_RATE / 60);
 
-const server = new GameServer({ port, seed, match: { modes, scoreLimits, timeLimitTicks: secondsToTicks(minutes * 60) } });
+// STATIC_DIR: the built client to serve on the same port; defaults to packages/client/dist if built.
+const builtClient = fileURLToPath(new URL('../../client/dist', import.meta.url));
+const staticDir = process.env.STATIC_DIR ?? (existsSync(builtClient) ? builtClient : undefined);
+
+const server = new GameServer({ port, seed, staticDir, match: { modes, scoreLimits, timeLimitTicks: secondsToTicks(minutes * 60) } });
 await server.listening();
-console.log(`Game server listening on ws://localhost:${server.port} (city seed ${seed})`);
+console.log(`Game server listening on port ${server.port} (city seed ${seed})`);
+console.log(staticDir ? `Serving the game at http://localhost:${server.port}` : 'Not serving the game page (run npm run build first, or use the Vite dev server)');
 console.log(`Modes: ${modes.join(' → ')}, ${minutes > 0 ? `${minutes} min` : 'no time limit'} per match`);
 
 setInterval(() => {

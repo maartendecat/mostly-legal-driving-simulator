@@ -10,7 +10,8 @@
     "server": "npm run dev -w @game/server",
     "build": "npm run build -w @game/client",
     "test": "npm test --workspaces --if-present",
-    "typecheck": "tsc -p packages/shared && tsc -p packages/client && tsc -p packages/server"
+    "typecheck": "tsc -p packages/shared && tsc -p packages/client && tsc -p packages/server",
+    "start": "npm run build && npm start -w @game/server"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",

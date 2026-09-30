@@ -53,6 +53,32 @@ MODE=tag SCORE_LIMIT=90 TIME_LIMIT=5 npm run server   # 90 s as "it" to win; 5-m
 `SCORE_LIMIT` is in frags, points or seconds as "it"; 0 means no limit, as does `TIME_LIMIT=0`.
 Add `?seed=42` to the URL for a different city.
 
+## Hosting
+
+The game server also serves the game page, so a deployed game is one process on one port:
+
+```bash
+npm start              # builds the client, then serves game + server on http://localhost:8080
+```
+
+Any host that runs a Docker container and allows WebSockets works (Fly.io, Render, Railway, a
+VPS). The platform's HTTPS turns into `wss://` automatically; the page connects back to the same
+address it was loaded from.
+
+```bash
+docker build -t mostly-legal .
+docker run -p 8080:8080 -e MODE=rotate mostly-legal
+```
+
+With Fly.io, for example: `fly launch` (it finds the Dockerfile; internal port 8080), then
+`fly deploy`. Pick a region close to your players. Things to know:
+
+- Rooms live in the server's memory: run exactly **one** instance, and a restart ends all games.
+- `GET /healthz` returns `{ ok, rooms, players }` for health checks.
+- The same environment variables apply (`MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `SEED`, `PORT`).
+- After joining a room, the address bar is an invite link (`…/#room=abc123`): send it to friends
+  and they land in the same room.
+
 ## Layout
 
 ```
@@ -100,6 +126,18 @@ maps and name. `.sty` and `.gmp` files are gitignored.
    damage, death and respawning, exploding cars; ✅ 3c Frag mode with kill feed and
    scoreboard; ✅ 3d player arrows; ✅ 3e Points and Tag modes
 4. (optional) Car handling: mass, speed-dependent steering
-5. ✅ 5a Lobby and game rooms; next a map editor (5b)
-6. Graphics: ✅ 6a Kenney CC0 art pack; next the classic pack importer (6b)
-7. Netcode tuning: WebRTC/WebTransport, delta compression, lag compensation; hosting
+5. ✅ 5a Lobby and game rooms (map editor: later)
+6. Graphics: ✅ 6a Kenney CC0 art pack (classic GTA2-files pack: later)
+7. ✅ Online play over the internet: delta snapshots (about 5–20 kB/s per player instead of
+   245 kB/s), smooth prediction corrections, remote bullets no longer vanish early; one-process
+   hosting with a Dockerfile, health check and invite links. Not yet: WebRTC/WebTransport and
+   lag compensation for hits (revisit after playtesting over the internet)
+
+### Later
+
+- Walking animation for people, like GTA2's
+- Jumping (GTA2's Space on foot)
+- A livelier city: traffic driving around and pedestrians walking the pavements
+- Points popping up where they're earned, like GTA2 (a car exploding, damage done, kills)
+- In-browser map editor (started, then postponed; unfinished work in `git stash`)
+- Classic pack: load your own GTA2 files in the browser

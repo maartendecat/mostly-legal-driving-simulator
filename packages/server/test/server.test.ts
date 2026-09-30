@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { WebSocket } from 'ws';
 import { NO_INPUT, type ServerMessage } from '@game/shared';
+import { asFullSnapshots } from './deltas';
 import { GameServer } from '../src/GameServer';
 
 let server: GameServer;
@@ -21,7 +22,7 @@ class TestClient {
   /** Joins with `name` as soon as the connection opens, unless `name` is null. */
   constructor(port: number, name: string | null = 'Tester') {
     this.socket = new WebSocket(`ws://localhost:${port}`);
-    this.socket.on('message', (data) => this.messages.push(JSON.parse(data.toString()) as ServerMessage));
+    this.socket.on('message', (data) => this.messages.push(...asFullSnapshots(this, JSON.parse(data.toString()) as ServerMessage)));
     if (name !== null) this.socket.on('open', () => this.send({ type: 'join', name }));
   }
 
@@ -74,7 +75,8 @@ test('the server applies inputs in order, one per tick, and acknowledges them', 
   // Exactly 30 ticks of turning at 4.5 rad/s, no more, no less.
   const turned = Math.atan2(Math.sin(ped.heading - start.heading), Math.cos(ped.heading - start.heading));
   const expected = Math.atan2(Math.sin(30 * 4.5 / 60), Math.cos(30 * 4.5 / 60));
-  assert.ok(Math.abs(turned - expected) < 1e-9, `turned ${turned}, expected ${expected}`);
+  // Snapshots round numbers to 0.0001 (both the start and end heading), so allow for that.
+  assert.ok(Math.abs(turned - expected) < 2e-4, `turned ${turned}, expected ${expected}`);
   client.close();
 });
 

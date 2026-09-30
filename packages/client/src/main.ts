@@ -63,12 +63,14 @@ async function main(): Promise<void> {
   window.addEventListener('keydown', (e) => toggleScoreboard(e, true));
   window.addEventListener('keyup', (e) => toggleScoreboard(e, false));
   window.addEventListener('blur', () => (scoreboard.held = false));
-  // Esc leaves the game and goes back to the lobby.
+  // Esc leaves the game and goes back to the lobby (dropping the room from the address).
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'Escape') return;
     if (session instanceof NetworkSession) session.close();
-    location.reload();
+    location.href = location.pathname + location.search;
   });
+  // The address bar becomes an invite link: anyone opening it joins this room.
+  if (session instanceof NetworkSession) history.replaceState(null, '', `${location.pathname}${location.search}#room=${session.roomId}`);
   let lastIt: number | null = null;
   const toast = new Toast(document.getElementById('toast')!);
   let blockedPickupId: number | null = null;
@@ -120,11 +122,20 @@ async function loadPack(requested: string | null): Promise<AssetPack> {
   return placeholder;
 }
 
+/**
+ * In development the game server runs next to Vite on its own port; a deployed game is served by
+ * the game server itself, so it connects back to the same address (wss:// on https).
+ */
+function defaultServerUrl(): string {
+  if (import.meta.env.DEV) return `ws://${location.hostname}:${DEFAULT_SERVER_PORT}`;
+  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+}
+
 function startSession(params: URLSearchParams): Promise<GameSession> {
   const seed = Number(params.get('seed')) || 1234;
   if (params.has('offline')) return Promise.resolve(new LocalSession(seed));
 
-  const serverUrl = params.get('server') ?? `ws://${location.hostname}:${DEFAULT_SERVER_PORT}`;
+  const serverUrl = params.get('server') ?? defaultServerUrl();
   const lagMs = Number(params.get('lag')) || 0;
   return showLobbyScreen({ serverUrl, lagMs, playOffline: () => new LocalSession(seed) });
 }

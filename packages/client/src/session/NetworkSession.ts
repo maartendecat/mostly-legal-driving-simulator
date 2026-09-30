@@ -1,6 +1,7 @@
 import {
   TICK_DT,
   NO_INPUT,
+  applyDelta,
   applySnapshot,
   cloneWorld,
   createWorld,
@@ -11,11 +12,13 @@ import {
   type MatchState,
   type PlayerInfo,
   type PlayerInput,
+  type Projectile,
   type ServerMessage,
   type World,
 } from '@game/shared';
 import { captureTransforms, lerpTransform, type TransformSnapshot } from '../render/transforms';
 import type { FrameState, GameSession } from './GameSession';
+import { CorrectionSmoother } from './CorrectionSmoother';
 import { Lobby } from './Lobby';
 import { SnapshotBuffer } from './SnapshotBuffer';
 
@@ -32,6 +35,8 @@ export interface ConnectOptions {
 }
 
 const PING_INTERVAL_MS = 2000;
+/** How long other players' projectiles are remembered after they were last in a snapshot (1 s). */
+const PROJECTILE_MEMORY_TICKS = 60;
 
 /**
  * Multiplayer session with client-side prediction.
@@ -49,6 +54,7 @@ const PING_INTERVAL_MS = 2000;
  */
 export class NetworkSession implements GameSession {
   readonly myPedId: number;
+  readonly roomId: string;
   readonly roomName: string;
   private readonly serverWorld: World;
   private predicted: World;
@@ -60,6 +66,14 @@ export class NetworkSession implements GameSession {
   private accumulator = 0;
   private playerList: PlayerInfo[] = [];
   private matchState: MatchState | null = null;
+  /** The last full snapshot (received or rebuilt from deltas); the next delta applies to it. */
+  private lastSnapshot: SnapshotMessage | null = null;
+  private readonly corrections = new CorrectionSmoother();
+  /**
+   * Other players' projectiles from recent snapshots. They're drawn slightly in the past like
+   * everything else, so one that just hit a wall on the server should still fly for a moment here.
+   */
+  private readonly recentProjectiles = new Map<number, { projectile: Projectile; lastSeenTick: number }>();
   /** Effects of our own shots: shown as soon as the server reports them. */
   private dueEvents: GameEvent[] = [];
   /** Everyone else's: shown when the (delayed) render time reaches them, to line up with what's drawn. */
@@ -90,6 +104,7 @@ export class NetworkSession implements GameSession {
     private readonly lagMs: number,
   ) {
     this.myPedId = welcome.pedId;
+    this.roomId = welcome.roomId;
     this.roomName = welcome.roomName;
     this.snapshots = new SnapshotBuffer(welcome.tickRate);
     // The map is generated from the seed; entities come from snapshots.
@@ -161,7 +176,8 @@ export class NetworkSession implements GameSession {
       tick: this.predicted.tick,
       peds: new Map(this.serverWorld.peds),
       cars: new Map(this.serverWorld.cars),
-      projectiles: new Map([...this.serverWorld.projectiles].filter(([, p]) => p.ownerId !== this.myPedId)),
+      // Remote projectiles that exist at the (delayed) time we're drawing.
+      projectiles: new Map([...this.recentProjectiles].filter(([id]) => transforms.has(id)).map(([id, { projectile }]) => [id, projectile])),
       pickups: this.predicted.pickups,
     };
     // Ourselves: blend between the last two predicted ticks.
@@ -181,6 +197,7 @@ export class NetworkSession implements GameSession {
       display.projectiles.set(projectile.id, projectile);
       drawPredicted(projectile);
     }
+    this.corrections.apply(transforms, frameDt);
     this.displayWorld = display;
     return { transforms, events: this.takeEvents(this.snapshots.renderTick(now)) };
   }
@@ -211,21 +228,67 @@ export class NetworkSession implements GameSession {
 
   private onMessage(message: ServerMessage): void {
     if (message.type === 'snapshot') this.onSnapshot(message);
+    else if (message.type === 'delta') this.onDelta(message);
     else if (message.type === 'pong') this.pingMs = performance.now() - message.time;
   }
 
+  /** Rebuilds the full snapshot from the previous one plus what changed, then handles it as usual. */
+  private onDelta(delta: Extract<ServerMessage, { type: 'delta' }>): void {
+    const previous = this.lastSnapshot;
+    if (!previous) return; // can't happen: the server always sends a full snapshot first
+    this.onSnapshot({
+      ...previous,
+      ...applyDelta(previous, delta),
+      type: 'snapshot',
+      acks: delta.acks,
+      events: delta.events,
+      players: delta.players ?? previous.players,
+      match: delta.match ?? previous.match,
+    });
+  }
+
   private onSnapshot(snapshot: SnapshotMessage): void {
+    this.lastSnapshot = snapshot;
     applySnapshot(this.serverWorld, snapshot);
     this.snapshots.push(snapshot.tick, captureTransforms(this.serverWorld), performance.now());
     this.playerList = snapshot.players;
     this.matchState = snapshot.match;
     for (const event of snapshot.events) (event.ownerId === this.myPedId ? this.dueEvents : this.scheduledEvents).push(event);
+    for (const projectile of snapshot.projectiles) {
+      if (projectile.ownerId !== this.myPedId) this.recentProjectiles.set(projectile.id, { projectile, lastSeenTick: snapshot.tick });
+    }
+    for (const [id, { lastSeenTick }] of this.recentProjectiles) {
+      if (lastSeenTick < snapshot.tick - PROJECTILE_MEMORY_TICKS) this.recentProjectiles.delete(id);
+    }
 
     // Reconcile: restart the prediction from the server's state and replay unacknowledged inputs.
+    const before = this.myTransforms();
     const ack = snapshot.acks[this.myPedId] ?? 0;
     this.pending = this.pending.filter((p) => p.seq > ack);
     this.predicted = cloneWorld(this.serverWorld);
     for (const { input } of this.pending) stepWorld(this.predicted, new Map([[this.myPedId, input]]));
+
+    // If that moved us, fade the difference out instead of jumping (see CorrectionSmoother).
+    const after = this.myTransforms();
+    for (const [id, old] of before) {
+      const now = after.get(id);
+      if (!now || (old.x === now.x && old.y === now.y && old.heading === now.heading)) continue;
+      const previous = this.previousPredicted.get(id);
+      if (this.corrections.corrected(id, old, now) && previous) {
+        // Move last tick's position by the same amount, so blending between ticks stays smooth too.
+        this.previousPredicted.set(id, { x: previous.x - (old.x - now.x), y: previous.y - (old.y - now.y), heading: previous.heading - (old.heading - now.heading) });
+      }
+    }
+  }
+
+  /** Our predicted ped and car (the entities drawn from the prediction), by id. */
+  private myTransforms(): TransformSnapshot {
+    const result: TransformSnapshot = new Map();
+    for (const id of this.predictedIds()) {
+      const entity = this.predicted.peds.get(id) ?? this.predicted.cars.get(id);
+      if (entity) result.set(id, { x: entity.x, y: entity.y, heading: entity.heading });
+    }
+    return result;
   }
 
   private send(message: ClientMessage): void {

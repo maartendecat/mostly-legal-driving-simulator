@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
   DEFAULT_MATCH_SETTINGS,
@@ -10,6 +11,7 @@ import {
   type RoomSettings,
 } from '@game/shared';
 import { GameRoom, send, type Player } from './GameRoom';
+import { staticFileHandler } from './staticFiles';
 
 export interface GameServerOptions {
   port: number;
@@ -20,6 +22,8 @@ export interface GameServerOptions {
   /** Rooms players create are closed after being empty this long. */
   emptyRoomTicks?: number;
   maxRooms?: number;
+  /** Folder with the built client to serve over HTTP on the same port (production). */
+  staticDir?: string;
 }
 
 const DEFAULT_EMPTY_ROOM_TICKS = secondsToTicks(60);
@@ -39,6 +43,7 @@ interface Connection {
  * rooms, and runs every room's simulation at the fixed tick rate.
  */
 export class GameServer {
+  private readonly http: Server;
   private readonly wss: WebSocketServer;
   private readonly rooms = new Map<string, GameRoom>();
   private readonly connections = new Set<Connection>();
@@ -56,8 +61,20 @@ export class GameServer {
       match: { ...DEFAULT_MATCH_SETTINGS, ...options.match },
       permanent: true,
     });
-    this.wss = new WebSocketServer({ port: options.port, maxPayload: 1024 });
+    // One port for everything: the game page (if built), a health check, and the game connections.
+    const serveStatic = options.staticDir ? staticFileHandler(options.staticDir) : null;
+    this.http = createServer((request, response) => {
+      if (request.url === '/healthz') {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: true, rooms: this.rooms.size, players: this.playerCount }));
+      } else if (serveStatic) {
+        void serveStatic(request, response);
+      } else {
+        response.writeHead(404, { 'content-type': 'text/plain' }).end('Game server: connect with a WebSocket.');
+      }
+    });
+    this.wss = new WebSocketServer({ server: this.http, maxPayload: 1024 });
     this.wss.on('connection', (socket) => this.onConnection(socket));
+    this.http.listen(options.port);
     this.timer = setInterval(() => this.update(), 1000 / TICK_RATE);
   }
 
@@ -72,7 +89,7 @@ export class GameServer {
   }
 
   get port(): number {
-    const address = this.wss.address();
+    const address = this.http.address();
     return address !== null && typeof address === 'object' ? address.port : this.options.port;
   }
 
@@ -92,16 +109,16 @@ export class GameServer {
   /** Resolves once the server is accepting connections. */
   listening(): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (this.wss.address()) return resolve();
-      this.wss.once('listening', resolve);
-      this.wss.once('error', reject);
+      if (this.http.listening) return resolve();
+      this.http.once('listening', resolve);
+      this.http.once('error', reject);
     });
   }
 
   close(): Promise<void> {
     clearInterval(this.timer);
     for (const socket of this.wss.clients) socket.terminate();
-    return new Promise((resolve) => this.wss.close(() => resolve()));
+    return new Promise((resolve) => this.wss.close(() => this.http.close(() => resolve())));
   }
 
   private onConnection(socket: WebSocket): void {
