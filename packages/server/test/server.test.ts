@@ -103,7 +103,7 @@ test('malformed messages are ignored and ping is answered', async () => {
 });
 
 test('players get sanitized, unique names that everyone can see', async () => {
-  const a = new TestClient(server.port, '  Dave\u0000 \n the   Rave ');
+  const a = new TestClient(server.port, '  Dave\u0000 the\nRave ');
   const { pedId: pedA } = await a.next('welcome');
   const b = new TestClient(server.port, 'dave THE rave');
   const { pedId: pedB } = await b.next('welcome');

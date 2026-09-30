@@ -172,8 +172,9 @@ function parseRoomSettings(raw: Record<string, unknown>): RoomSettings | null {
 /** Strips control characters and extra whitespace and limits the length. May return ''. */
 export function sanitizeName(name: string, maxLength = MAX_NAME_LENGTH): string {
   return name
-    .replace(/[\p{C}]/gu, '')
+    // Whitespace first, so a newline between two words still becomes a space.
     .replace(/\s+/g, ' ')
+    .replace(/[\p{C}]/gu, '')
     .trim()
     .slice(0, maxLength)
     .trim();
