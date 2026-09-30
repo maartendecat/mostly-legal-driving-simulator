@@ -1,4 +1,4 @@
-import { CAR_MODELS, DEFAULT_SERVER_PORT, WEAPONS, carSpeed } from '@game/shared';
+import { CAR_MODELS, DEFAULT_SERVER_PORT, PED_MAX_HEALTH, TICK_RATE, WEAPONS, carSpeed, type GameEvent } from '@game/shared';
 import type { AssetPack } from './assets/AssetPack';
 import { PlaceholderPack } from './assets/placeholder/PlaceholderPack';
 import { Keyboard } from './input/Keyboard';
@@ -30,6 +30,7 @@ async function main(): Promise<void> {
   renderer.setMap(session.world.map);
   const nameTags = new NameTags(document.getElementById('tags')!);
   const hud = document.getElementById('hud')!;
+  const wasted = new WastedScreen();
 
   // Handy for debugging from the browser console; stripped from production builds.
   if (import.meta.env.DEV) Object.assign(window, { game: session });
@@ -44,6 +45,7 @@ async function main(): Promise<void> {
     last = now;
     const { transforms, events } = session.update(frameDt, () => keyboard.sample());
     renderer.render(session.world, transforms, session.myPedId, frameDt, events);
+    wasted.update(session, events);
     nameTags.update(nameTagsFor(session, transforms, renderer));
 
     if (frameDt > 0) fps += (1 / frameDt - fps) * 0.05;
@@ -85,10 +87,14 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
   const ped = session.myPedId === null ? undefined : world.peds.get(session.myPedId);
   const car = ped?.carId != null ? world.cars.get(ped.carId) : undefined;
   const status = car ? `Driving: ${CAR_MODELS[car.model].name}  ${Math.round(carSpeed(car) * 10)} km/h` : 'On foot';
+  const health = ped ? Math.ceil(ped.health) : 0;
+  const bars = Math.ceil((health / PED_MAX_HEALTH) * 10);
+  const healthLine = `Health: ${'█'.repeat(bars)}${'░'.repeat(10 - bars)} ${health}`;
   const weapon = ped?.weapon ? `Weapon: ${WEAPONS[ped.weapon].name} · ${ped.ammo[ped.weapon] ?? 0}` : 'Unarmed (walk over a spinning crate)';
   const me = session.players.find((p) => p.pedId === session.myPedId);
   const others = session.players.filter((p) => p !== me).map((p) => p.name);
   return [
+    healthLine,
     status,
     weapon,
     '',
@@ -105,6 +111,39 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
   ]
     .filter((line, i, lines) => line !== '' || lines[i - 1] !== '')
     .join('\n');
+}
+
+/** The big red "WASTED" overlay, with who did it and a respawn countdown. */
+class WastedScreen {
+  private readonly element = document.getElementById('wasted')!;
+  private readonly cause = document.getElementById('wasted-cause')!;
+  private readonly countdown = document.getElementById('wasted-countdown')!;
+
+  update(session: GameSession, events: readonly GameEvent[]): void {
+    const me = session.myPedId;
+    for (const event of events) {
+      if (event.type === 'death' && event.pedId === me) this.cause.textContent = describeDeath(session, event);
+    }
+    const ped = me === null ? undefined : session.world.peds.get(me);
+    const respawnAt = ped?.respawnAt ?? null;
+    this.element.hidden = respawnAt === null;
+    if (respawnAt !== null) {
+      const seconds = Math.max(1, Math.ceil((respawnAt - session.world.tick) / TICK_RATE));
+      this.countdown.textContent = `Back in ${seconds}...`;
+    }
+  }
+}
+
+function describeDeath(session: GameSession, death: Extract<GameEvent, { type: 'death' }>): string {
+  const name = (pedId: number | null) => session.players.find((p) => p.pedId === pedId)?.name ?? 'Someone';
+  const self = death.killerId === death.pedId;
+  if (death.cause === 'runOver') return death.killerId === null ? 'Hit by a runaway car' : `${name(death.killerId)} ran you over`;
+  if (death.cause === 'carExplosion') {
+    if (death.killerId === null) return 'Your ride went up in flames';
+    return self ? 'You blew yourself up' : `${name(death.killerId)} blew you up`;
+  }
+  if (self) return 'You blew yourself up';
+  return `${name(death.killerId)} got you with the ${WEAPONS[death.cause].name.toLowerCase()}`;
 }
 
 main().catch((error: unknown) => {

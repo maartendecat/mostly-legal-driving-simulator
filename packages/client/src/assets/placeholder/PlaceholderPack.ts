@@ -108,10 +108,11 @@ export class PlaceholderPack implements AssetPack {
     return group;
   }
 
-  createCarView(car: Car): EntityView {
+  createCarView(car: Car): EntityView<Car> {
     const m = CAR_MODELS[car.model];
     const group = new THREE.Group();
     const isTruck = car.model === 'truck';
+    const paint = new THREE.Color(car.color);
 
     const body = box(m.length, m.width, 0.3, car.color);
     body.position.z = 0.15;
@@ -120,7 +121,8 @@ export class PlaceholderPack implements AssetPack {
     // Truck: cab at the front. Others: cabin in the middle with a dark windscreen showing the front.
     const cabinLength = isTruck ? m.length * 0.3 : m.length * 0.45;
     const cabinX = isTruck ? m.length / 2 - cabinLength / 2 - 0.05 : -m.length * 0.05;
-    const cabin = box(cabinLength, m.width * 0.85, 0.2, new THREE.Color(car.color).multiplyScalar(0.75).getHex());
+    const cabinPaint = paint.clone().multiplyScalar(0.75);
+    const cabin = box(cabinLength, m.width * 0.85, 0.2, cabinPaint.getHex());
     cabin.position.set(cabinX, 0, 0.4);
     group.add(cabin);
 
@@ -128,36 +130,90 @@ export class PlaceholderPack implements AssetPack {
     windscreen.position.set(cabinX + cabinLength / 2, 0, 0.39);
     group.add(windscreen);
 
+    const lights: THREE.Mesh[] = [];
     for (const side of [1, -1]) {
       const light = box(0.04, 0.1, 0.08, 0xfff3b0);
       light.position.set(m.length / 2, side * (m.width / 2 - 0.08), 0.2);
+      lights.push(light);
       group.add(light);
     }
 
-    return { object: group, dispose: () => disposeObject(group) };
+    // Smoke when badly damaged, flames when it's about to blow.
+    const smoke = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), new THREE.MeshBasicMaterial({ color: 0x555555, transparent: true, opacity: 0.5 }));
+    smoke.position.set(m.length * 0.3, 0, 0.55);
+    const flames = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const flame = box(0.26, 0.26, 0.35, i === 1 ? 0xffd23f : 0xff6a00);
+      (flame.material as THREE.MeshLambertMaterial).emissive.setHex(i === 1 ? 0xffb000 : 0xff4000);
+      flame.position.set(m.length * 0.25 - i * 0.15, (i - 1) * 0.15, 0.55);
+      flames.add(flame);
+    }
+    group.add(smoke, flames);
+
+    const bodyMaterial = body.material as THREE.MeshLambertMaterial;
+    const cabinMaterial = cabin.material as THREE.MeshLambertMaterial;
+    const burnt = new THREE.Color(0x1c1c1c);
+    let time = Math.random() * 10;
+    return {
+      object: group,
+      update: (dt, state) => {
+        time += dt;
+        const damage = state.wrecked ? 1 : 1 - state.health / CAR_MODELS[state.model].health;
+        bodyMaterial.color.copy(paint).lerp(burnt, state.wrecked ? 1 : damage * 0.6);
+        cabinMaterial.color.copy(cabinPaint).lerp(burnt, state.wrecked ? 1 : damage * 0.6);
+        lights.forEach((light) => (light.visible = !state.wrecked));
+
+        const burning = state.explodeAt !== null && !state.wrecked;
+        flames.visible = burning;
+        if (burning) flames.children.forEach((flame, i) => flame.scale.setScalar(0.8 + 0.4 * Math.abs(Math.sin(time * 12 + i * 2))));
+        smoke.visible = !burning && (state.wrecked || damage > 0.6);
+        if (smoke.visible) smoke.scale.setScalar(1 + 0.25 * Math.sin(time * 3));
+      },
+      dispose: () => disposeObject(group),
+    };
   }
 
-  createPedView(ped: Ped): EntityView {
+  createPedView(ped: Ped): EntityView<Ped> {
     const group = new THREE.Group();
+    // Everything that falls over when the ped dies.
+    const figure = new THREE.Group();
+    group.add(figure);
     const material = new THREE.MeshLambertMaterial({ color: ped.color });
 
     const body = new THREE.Mesh(new THREE.CylinderGeometry(PED_RADIUS, PED_RADIUS, 0.45, 12), material);
     body.rotation.x = Math.PI / 2; // cylinders are Y-up in three.js; our world is Z-up
     body.position.z = 0.225;
-    group.add(body);
+    figure.add(body);
 
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), new THREE.MeshLambertMaterial({ color: 0xe0b08a }));
     head.position.z = 0.52;
-    group.add(head);
+    figure.add(head);
 
     const nose = box(0.14, 0.06, 0.06, 0x222222);
     nose.position.set(PED_RADIUS, 0, 0.35);
-    group.add(nose);
+    figure.add(nose);
 
-    return { object: group, dispose: () => disposeObject(group) };
+    const blood = new THREE.Mesh(new THREE.CircleGeometry(0.45, 20), new THREE.MeshBasicMaterial({ color: 0x6d0a0a }));
+    blood.position.set(-0.25, 0, 0.015);
+    group.add(blood);
+
+    let deadFor = 0;
+    return {
+      object: group,
+      update: (dt, state) => {
+        const dead = state.respawnAt !== null;
+        deadFor = dead ? deadFor + dt : 0;
+        // Tip over backwards and lie flat on the ground.
+        figure.rotation.y = dead ? -Math.PI / 2 : 0;
+        figure.position.set(dead ? -0.05 : 0, 0, dead ? PED_RADIUS : 0);
+        blood.visible = dead;
+        blood.scale.setScalar(Math.min(0.2 + deadFor, 1));
+      },
+      dispose: () => disposeObject(group),
+    };
   }
 
-  createProjectileView(projectile: Projectile): EntityView {
+  createProjectileView(projectile: Projectile): EntityView<Projectile> {
     const group = new THREE.Group();
     if (projectile.kind === 'rocket') {
       const body = new THREE.Mesh(this.rocketGeometry, this.rocketMaterial);
@@ -172,7 +228,7 @@ export class PlaceholderPack implements AssetPack {
     return { object: group, dispose: () => {} };
   }
 
-  createPickupView(pickup: Pickup): EntityView {
+  createPickupView(pickup: Pickup): EntityView<Pickup> {
     const group = new THREE.Group();
     const color = WEAPON_COLORS[pickup.weapon];
     const glow = new THREE.Mesh(
@@ -195,6 +251,7 @@ export class PlaceholderPack implements AssetPack {
   }
 
   createEffectView(event: GameEvent): EffectView | null {
+    if (event.type === 'death') return null; // the body and blood pool are drawn by the ped view
     const explosion = event.type === 'explosion';
     const duration = explosion ? 0.6 : 0.15;
     const startSize = explosion ? 0.3 : 0.08;

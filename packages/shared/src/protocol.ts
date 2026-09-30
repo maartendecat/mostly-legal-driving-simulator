@@ -22,6 +22,8 @@ export interface Snapshot {
   tick: number;
   /** So entities the client predicts get ids that can't clash with the server's. */
   nextId: number;
+  /** So the client predicts the same "random" choices (like respawn points) as the server. */
+  rngState: number;
   cars: Car[];
   peds: Ped[];
   projectiles: Projectile[];
@@ -57,6 +59,7 @@ export function captureSnapshot(world: World): Snapshot {
   return {
     tick: world.tick,
     nextId: world.nextId,
+    rngState: world.rngState,
     cars: [...world.cars.values()],
     peds: [...world.peds.values()],
     projectiles: [...world.projectiles.values()],
@@ -68,6 +71,7 @@ export function captureSnapshot(world: World): Snapshot {
 export function applySnapshot(world: World, snapshot: Snapshot): void {
   world.tick = snapshot.tick;
   world.nextId = snapshot.nextId;
+  world.rngState = snapshot.rngState;
   world.cars = new Map(snapshot.cars.map((car) => [car.id, car]));
   world.peds = new Map(snapshot.peds.map((ped) => [ped.id, ped]));
   world.projectiles = new Map(snapshot.projectiles.map((p) => [p.id, p]));

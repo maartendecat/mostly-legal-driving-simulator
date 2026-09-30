@@ -1,11 +1,13 @@
 import type { Object3D } from 'three';
 import type { BlockMap, Car, GameEvent, Ped, Pickup, Projectile } from '@game/shared';
 
-/** A renderable object for one game entity. The renderer positions and rotates `object` each frame. */
-export interface EntityView {
+/**
+ * A renderable object for one game entity. The renderer positions and rotates `object` each frame,
+ * then calls `update` with the entity's current state (damage, death, ...).
+ */
+export interface EntityView<T = unknown> {
   readonly object: Object3D;
-  /** Per-frame animation hook (wheels, walk cycle, damage, ...). */
-  update?(dt: number): void;
+  update?(dt: number, state: T): void;
   dispose(): void;
 }
 
@@ -33,10 +35,10 @@ export interface AssetPack {
   readonly name: string;
   load(): Promise<void>;
   buildMap(map: BlockMap): Object3D;
-  createCarView(car: Car): EntityView;
-  createPedView(ped: Ped): EntityView;
-  createProjectileView(projectile: Projectile): EntityView;
-  createPickupView(pickup: Pickup): EntityView;
+  createCarView(car: Car): EntityView<Car>;
+  createPedView(ped: Ped): EntityView<Ped>;
+  createProjectileView(projectile: Projectile): EntityView<Projectile>;
+  createPickupView(pickup: Pickup): EntityView<Pickup>;
   /** The effect for a game event, or null if this pack shows nothing for it. */
   createEffectView(event: GameEvent): EffectView | null;
 }

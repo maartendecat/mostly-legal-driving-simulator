@@ -53,6 +53,32 @@
         white-space: pre;
       }
 
+      #wasted {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        text-align: center;
+        pointer-events: none;
+        background: radial-gradient(circle, rgba(80, 0, 0, 0.15), rgba(40, 0, 0, 0.45));
+      }
+      #wasted[hidden] {
+        display: none;
+      }
+      #wasted .title {
+        font-size: clamp(48px, 12vw, 96px);
+        font-weight: bold;
+        letter-spacing: 4px;
+        color: #d11a1a;
+        text-shadow: 0 3px 0 #000, 0 0 24px rgba(0, 0, 0, 0.8);
+      }
+      #wasted .detail {
+        margin-top: 8px;
+        font-size: 16px;
+        color: #fff;
+        text-shadow: 0 1px 3px #000;
+      }
+
       #join {
         position: fixed;
         inset: 0;
@@ -140,6 +166,11 @@
     <div id="game"></div>
     <div id="tags"></div>
     <div id="hud"></div>
+    <div id="wasted" hidden>
+      <div class="title">WASTED</div>
+      <div class="detail" id="wasted-cause"></div>
+      <div class="detail" id="wasted-countdown"></div>
+    </div>
     <div id="join" hidden>
       <form id="join-form">
         <h1>Mostly Legal<br />Driving Simulator</h1>

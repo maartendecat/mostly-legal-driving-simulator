@@ -16,24 +16,25 @@ export interface CarModel {
   /** How quickly sideways sliding is cancelled; lower values drift more. */
   grip: number;
   handbrakeGrip: number;
+  health: number;
 }
 
 export const CAR_MODELS = {
   compact: {
     id: 'compact', name: 'Compact', length: 1.0, width: 0.5,
-    maxSpeed: 11, reverseSpeed: 4, accel: 9, brake: 18, turnRate: 3.2, grip: 8, handbrakeGrip: 1.2,
+    maxSpeed: 11, reverseSpeed: 4, accel: 9, brake: 18, turnRate: 3.2, grip: 8, handbrakeGrip: 1.2, health: 80,
   },
   sedan: {
     id: 'sedan', name: 'Sedan', length: 1.15, width: 0.55,
-    maxSpeed: 13, reverseSpeed: 4, accel: 8, brake: 18, turnRate: 2.8, grip: 7, handbrakeGrip: 1.0,
+    maxSpeed: 13, reverseSpeed: 4, accel: 8, brake: 18, turnRate: 2.8, grip: 7, handbrakeGrip: 1.0, health: 100,
   },
   sports: {
     id: 'sports', name: 'Sports car', length: 1.1, width: 0.55,
-    maxSpeed: 18, reverseSpeed: 5, accel: 13, brake: 22, turnRate: 3.0, grip: 9, handbrakeGrip: 1.4,
+    maxSpeed: 18, reverseSpeed: 5, accel: 13, brake: 22, turnRate: 3.0, grip: 9, handbrakeGrip: 1.4, health: 90,
   },
   truck: {
     id: 'truck', name: 'Truck', length: 1.6, width: 0.65,
-    maxSpeed: 9, reverseSpeed: 3, accel: 5, brake: 12, turnRate: 2.0, grip: 10, handbrakeGrip: 2.0,
+    maxSpeed: 9, reverseSpeed: 3, accel: 5, brake: 12, turnRate: 2.0, grip: 10, handbrakeGrip: 2.0, health: 180,
   },
 } as const satisfies Record<string, CarModel>;
 

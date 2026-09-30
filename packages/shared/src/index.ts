@@ -1,4 +1,5 @@
 export * from './combat';
+export * from './damage';
 export * from './input';
 export * from './map';
 export * from './mapgen';

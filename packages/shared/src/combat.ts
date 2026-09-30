@@ -1,8 +1,9 @@
+import { damageCar, damagePed, explode, isDead, type DamageCause } from './damage';
 import type { PlayerInput } from './input';
 import { isSolidAt } from './map';
 import { secondsToTicks } from './time';
 import { WEAPONS, WEAPON_IDS, type ProjectileKind, type WeaponId } from './weapons';
-import { PED_RADIUS, carContainsPoint, type Ped, type World } from './world';
+import { PED_RADIUS, carContainsPoint, type Car, type Ped, type World } from './world';
 
 /** A bullet or rocket in flight. */
 export interface Projectile {
@@ -33,7 +34,9 @@ export interface Pickup {
  */
 export type GameEvent =
   | { type: 'impact'; tick: number; ownerId: number; x: number; y: number }
-  | { type: 'explosion'; tick: number; ownerId: number; x: number; y: number; radius: number };
+  | { type: 'explosion'; tick: number; ownerId: number; x: number; y: number; radius: number }
+  /** `killerId` is null for accidents; `ownerId` is the killer, or the victim if there is none. */
+  | { type: 'death'; tick: number; ownerId: number; pedId: number; killerId: number | null; cause: DamageCause; x: number; y: number };
 
 export const PICKUP_RADIUS = 0.45;
 const PICKUP_RESPAWN_TICKS = secondsToTicks(10);
@@ -41,6 +44,10 @@ const PICKUP_RESPAWN_TICKS = secondsToTicks(10);
 const MUZZLE_GAP = 0.15;
 /** Projectiles move in a few small steps per tick so fast bullets can't skip past thin things. */
 const PROJECTILE_SUBSTEPS = 3;
+/** Cars are tougher than people: bullets do this fraction of their damage to them. */
+const BULLET_CAR_DAMAGE = 0.5;
+
+type Hit = { type: 'wall' } | { type: 'car'; car: Car } | { type: 'ped'; ped: Ped };
 
 export function isPickupAvailable(world: World, pickup: Pickup): boolean {
   return world.tick >= pickup.availableAt;
@@ -56,7 +63,7 @@ export function spawnPickup(world: World, weapon: WeaponId, x: number, y: number
 export function updateWeapons(world: World, ped: Ped, input: PlayerInput, switchDirection: number): void {
   if (ped.fireCooldown > 0) ped.fireCooldown--;
   if (switchDirection !== 0) cycleWeapon(ped, switchDirection);
-  // No drive-bys yet: you can only shoot on foot.
+  // No drive-bys yet: you can only shoot on foot. (Dead peds never get here.)
   if (input.fire && ped.carId === null) tryFire(world, ped);
 }
 
@@ -104,38 +111,43 @@ export function stepProjectiles(world: World, dt: number): void {
     const step = (projectile.speed * dt) / PROJECTILE_SUBSTEPS;
     const dx = Math.cos(projectile.heading) * step;
     const dy = Math.sin(projectile.heading) * step;
-    let hit = false;
+    let hit: Hit | null = null;
     for (let i = 0; i < PROJECTILE_SUBSTEPS && !hit; i++) {
       projectile.x += dx;
       projectile.y += dy;
-      hit = projectileHits(world, projectile);
+      hit = findHit(world, projectile);
     }
     projectile.ticksLeft--;
     // Rockets explode when they run out of range too; bullets just drop.
-    if (hit || (projectile.ticksLeft <= 0 && projectile.kind === 'rocket')) detonate(world, projectile);
+    if (hit || (projectile.ticksLeft <= 0 && projectile.kind === 'rocket')) detonate(world, projectile, hit);
     else if (projectile.ticksLeft <= 0) world.projectiles.delete(projectile.id);
   }
 }
 
-function projectileHits(world: World, projectile: Projectile): boolean {
+function findHit(world: World, projectile: Projectile): Hit | null {
   const { x, y } = projectile;
-  if (isSolidAt(world.map, x, y)) return true;
+  if (isSolidAt(world.map, x, y)) return { type: 'wall' };
   for (const car of world.cars.values()) {
-    if (carContainsPoint(car, x, y)) return true;
+    if (carContainsPoint(car, x, y)) return { type: 'car', car };
   }
   for (const ped of world.peds.values()) {
-    if (ped.id === projectile.ownerId || ped.carId !== null) continue;
-    if (Math.hypot(ped.x - x, ped.y - y) < PED_RADIUS) return true;
+    if (ped.id === projectile.ownerId || ped.carId !== null || isDead(ped)) continue;
+    if (Math.hypot(ped.x - x, ped.y - y) < PED_RADIUS) return { type: 'ped', ped };
   }
-  return false;
+  return null;
 }
 
-function detonate(world: World, projectile: Projectile): void {
+function detonate(world: World, projectile: Projectile, hit: Hit | null): void {
   world.projectiles.delete(projectile.id);
-  const { tick } = world;
+  const weapon = WEAPONS[projectile.weapon];
   const { ownerId, x, y } = projectile;
-  const radius = WEAPONS[projectile.weapon].blastRadius;
-  world.events.push(radius > 0 ? { type: 'explosion', tick, ownerId, x, y, radius } : { type: 'impact', tick, ownerId, x, y });
+  if (weapon.blastRadius > 0) {
+    explode(world, x, y, weapon.blastRadius, weapon.damage, ownerId, projectile.weapon);
+    return;
+  }
+  world.events.push({ type: 'impact', tick: world.tick, ownerId, x, y });
+  if (hit?.type === 'ped') damagePed(world, hit.ped, weapon.damage, ownerId, projectile.weapon);
+  else if (hit?.type === 'car') damageCar(world, hit.car, weapon.damage * BULLET_CAR_DAMAGE, ownerId);
 }
 
 export function collectPickups(world: World): void {
@@ -143,7 +155,7 @@ export function collectPickups(world: World): void {
     if (!isPickupAvailable(world, pickup)) continue;
     const weapon = WEAPONS[pickup.weapon];
     for (const ped of world.peds.values()) {
-      if (ped.carId !== null || Math.hypot(ped.x - pickup.x, ped.y - pickup.y) > PICKUP_RADIUS) continue;
+      if (ped.carId !== null || isDead(ped) || Math.hypot(ped.x - pickup.x, ped.y - pickup.y) > PICKUP_RADIUS) continue;
       const ammo = ped.ammo[pickup.weapon] ?? 0;
       if (ammo >= weapon.maxAmmo) continue;
       ped.ammo[pickup.weapon] = Math.min(ammo + weapon.pickupAmmo, weapon.maxAmmo);

@@ -23,6 +23,10 @@ simulate a slow connection.
 Controls: arrows/WASD to move or steer, Enter/F to get in or out of a car, Space for the handbrake,
 J or Ctrl to fire, Z/X to switch weapons. Weapons lie around the city as spinning crates: grey is a
 pistol, blue a machine gun, red a rocket launcher.
+
+You have 100 health. Bullets, rocket blasts and being run over hurt; at zero you're WASTED and
+respawn 3 seconds later, unarmed. Cars take damage from gunfire and hard crashes, start smoking,
+then burn and explode (get out in time!) and leave a wreck that's replaced after 30 seconds.
 Add `?seed=42` to the URL for a different city.
 
 ## Layout
@@ -67,8 +71,9 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 1. ✅ Shared simulation, placeholder renderer, driving and walking offline
 2. ✅ Multiplayer: authoritative WebSocket server, client-side prediction with reconciliation,
    snapshot interpolation for other players, join screen with player names
-3. Combat: ✅ 3a weapons (pistol, machine gun, rocket launcher) and pickups; next damage and
-   respawning, Frag mode, player arrows
+3. Combat: ✅ 3a weapons (pistol, machine gun, rocket launcher) and pickups; ✅ 3b health,
+   damage, death and respawning, exploding cars; next Frag mode (3c), player arrows (3d),
+   Points and Tag modes (3e)
 4. Lobbies and matchmaking; map editor
 5. Open asset pack, then the classic pack importer
 6. Netcode tuning: WebRTC/WebTransport, delta compression, lag compensation

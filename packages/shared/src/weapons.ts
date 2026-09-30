@@ -18,6 +18,8 @@ export interface WeaponDef {
   /** Ammo gained from one pickup. */
   pickupAmmo: number;
   maxAmmo: number;
+  /** Damage to a ped hit directly, or at the centre of the blast for explosives. */
+  damage: number;
   /** Explosion radius on impact; 0 for plain bullets. */
   blastRadius: number;
 }
@@ -25,15 +27,15 @@ export interface WeaponDef {
 export const WEAPONS = {
   pistol: {
     id: 'pistol', name: 'Pistol', cooldownTicks: 18, projectile: 'bullet', speed: 22, range: 14,
-    spread: 0.01, pickupAmmo: 30, maxAmmo: 99, blastRadius: 0,
+    spread: 0.01, pickupAmmo: 30, maxAmmo: 99, damage: 25, blastRadius: 0,
   },
   machineGun: {
     id: 'machineGun', name: 'Machine gun', cooldownTicks: 5, projectile: 'bullet', speed: 24, range: 14,
-    spread: 0.07, pickupAmmo: 80, maxAmmo: 300, blastRadius: 0,
+    spread: 0.07, pickupAmmo: 80, maxAmmo: 300, damage: 12, blastRadius: 0,
   },
   rocketLauncher: {
     id: 'rocketLauncher', name: 'Rocket launcher', cooldownTicks: 50, projectile: 'rocket', speed: 11, range: 22,
-    spread: 0, pickupAmmo: 5, maxAmmo: 20, blastRadius: 1.8,
+    spread: 0, pickupAmmo: 5, maxAmmo: 20, damage: 150, blastRadius: 1.8,
   },
 } as const satisfies Record<string, WeaponDef>;
 

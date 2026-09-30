@@ -1,4 +1,5 @@
 import { collectPickups, spawnPickup, stepProjectiles, updateWeapons, type GameEvent, type Pickup, type Projectile } from './combat';
+import { PED_MAX_HEALTH, damageCar, damagePed, isDead, updateLifecycle } from './damage';
 import { NO_INPUT, type PlayerInput } from './input';
 import { isSolidAt, type BlockMap } from './map';
 import { clamp, nextRandom, randomPick, wrapAngle } from './math';
@@ -26,6 +27,13 @@ const HANDBRAKE_TURN_BOOST = 1.35;
 const FULL_STEER_SPEED = 2.5;
 const WALL_BOUNCE = 0.25;
 const CAR_RESTITUTION = 0.3;
+/** Impacts slower than this (blocks/s) don't hurt; above it, damage grows with speed. */
+const CRASH_SAFE_SPEED = 5;
+const WALL_CRASH_DAMAGE = 6;
+const CAR_CRASH_DAMAGE = 5;
+/** A car hitting a ped faster than this hurts them; at about 6 blocks/s it's fatal. */
+const RUN_OVER_SAFE_SPEED = 3;
+const RUN_OVER_DAMAGE = 30;
 
 const CAR_COLORS = [0xc0392b, 0x2980b9, 0xf1c40f, 0x27ae60, 0xecf0f1, 0x8e44ad, 0xe67e22, 0x2c3e50];
 const PED_COLORS = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x1abc9c, 0xff66cc, 0xffffff];
@@ -39,6 +47,9 @@ export interface Ped {
   heading: number;
   carId: number | null;
   color: number;
+  health: number;
+  /** Set while dead: the tick at which the ped comes back. */
+  respawnAt: number | null;
   /** The weapon in hand, or null when unarmed. */
   weapon: WeaponId | null;
   ammo: Partial<Record<WeaponId, number>>;
@@ -61,6 +72,15 @@ export interface Car {
   angVel: number;
   driverId: number | null;
   color: number;
+  health: number;
+  /** Set once the car is destroyed and burning: the tick at which it explodes. */
+  explodeAt: number | null;
+  /** A burnt-out shell: can't be driven or entered. */
+  wrecked: boolean;
+  /** For wrecks: the tick at which it's cleared away and replaced. */
+  removeAt: number | null;
+  /** Who last damaged the car, credited if it explodes. */
+  lastAttackerId: number | null;
 }
 
 export interface World {
@@ -88,9 +108,7 @@ export function createWorld(map: BlockMap, seed = 1): World {
     nextId: 1,
     rngState: seed >>> 0,
   };
-  for (const spawn of map.carSpawns) {
-    spawnCar(world, randomPick(world, SPAWN_MODELS), spawn.x, spawn.y, spawn.heading);
-  }
+  for (const spawn of map.carSpawns) spawnRandomCar(world, spawn);
   for (const spawn of map.pickupSpawns) spawnPickup(world, spawn.weapon, spawn.x, spawn.y);
   return world;
 }
@@ -107,9 +125,19 @@ export function spawnCar(world: World, model: CarModelId, x: number, y: number, 
     angVel: 0,
     driverId: null,
     color: randomPick(world, CAR_COLORS),
+    health: CAR_MODELS[model].health,
+    explodeAt: null,
+    wrecked: false,
+    removeAt: null,
+    lastAttackerId: null,
   };
   world.cars.set(car.id, car);
   return car;
+}
+
+/** Spawns a car of a random (weighted) model at a spawn point. */
+export function spawnRandomCar(world: World, spawn: { x: number; y: number; heading: number }): Car {
+  return spawnCar(world, randomPick(world, SPAWN_MODELS), spawn.x, spawn.y, spawn.heading);
 }
 
 /** Spawns a ped at the given position, or at a random pavement spawn point. */
@@ -127,6 +155,8 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
     heading: nextRandom(world) * Math.PI * 2 - Math.PI,
     carId: null,
     color: PED_COLORS[world.peds.size % PED_COLORS.length]!,
+    health: PED_MAX_HEALTH,
+    respawnAt: null,
     weapon: null,
     ammo: {},
     fireCooldown: 0,
@@ -172,6 +202,7 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
     const switchHeld = (input.weaponNext ? 1 : 0) - (input.weaponPrev ? 1 : 0);
     const switchDirection = ped.switchHeld ? 0 : switchHeld;
     ped.switchHeld = switchHeld !== 0;
+    if (isDead(ped)) continue;
 
     if (ped.carId === null) {
       if (enterPressed && tryEnterCar(world, ped)) continue;
@@ -183,8 +214,8 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
   }
 
   for (const car of world.cars.values()) {
-    const input = car.driverId === null ? NO_INPUT : (inputs.get(car.driverId) ?? NO_INPUT);
-    driveCar(world.map, car, input, dt);
+    const input = car.driverId === null || car.wrecked ? NO_INPUT : (inputs.get(car.driverId) ?? NO_INPUT);
+    driveCar(world, car, input, dt);
   }
 
   resolveCarCollisions(world);
@@ -195,13 +226,14 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
       ped.x = car.x;
       ped.y = car.y;
       ped.heading = car.heading;
-    } else {
-      for (const other of world.cars.values()) pushPedOutOfCar(world.map, ped, other);
+    } else if (!isDead(ped)) {
+      for (const other of world.cars.values()) pushPedOutOfCar(world, ped, other);
     }
   }
 
   collectPickups(world);
   stepProjectiles(world, dt);
+  updateLifecycle(world);
 
   world.tick++;
 }
@@ -229,7 +261,7 @@ function tryEnterCar(world: World, ped: Ped): boolean {
   let best: Car | undefined;
   let bestDistance = Infinity;
   for (const car of world.cars.values()) {
-    if (car.driverId !== null) continue;
+    if (car.driverId !== null || car.wrecked) continue;
     const distance = Math.hypot(car.x - ped.x, car.y - ped.y);
     if (distance < CAR_MODELS[car.model].length / 2 + ENTER_REACH && distance < bestDistance) {
       best = car;
@@ -265,7 +297,8 @@ function tryExitCar(world: World, ped: Ped): void {
   }
 }
 
-function pushPedOutOfCar(map: BlockMap, ped: Ped, car: Car): void {
+/** Keeps peds out of cars, and hurts them if the car hits them fast enough (running them over). */
+function pushPedOutOfCar(world: World, ped: Ped, car: Car): void {
   const m = CAR_MODELS[car.model];
   const cos = Math.cos(car.heading);
   const sin = Math.sin(car.heading);
@@ -302,7 +335,15 @@ function pushPedOutOfCar(map: BlockMap, ped: Ped, car: Car): void {
   }
   const wx = px * cos - py * sin;
   const wy = px * sin + py * cos;
-  if (!pedCollides(map, ped.x + wx, ped.y + wy)) {
+
+  // How fast the car is moving into the ped, along the direction the ped gets pushed.
+  const length = Math.hypot(wx, wy);
+  const impactSpeed = length > 1e-9 ? (car.vx * wx + car.vy * wy) / length : 0;
+  if (impactSpeed > RUN_OVER_SAFE_SPEED) {
+    damagePed(world, ped, (impactSpeed - RUN_OVER_SAFE_SPEED) * RUN_OVER_DAMAGE, car.driverId, 'runOver');
+    if (isDead(ped)) return; // run over: the body stays where it fell
+  }
+  if (!pedCollides(world.map, ped.x + wx, ped.y + wy)) {
     ped.x += wx;
     ped.y += wy;
   }
@@ -310,7 +351,8 @@ function pushPedOutOfCar(map: BlockMap, ped: Ped, car: Car): void {
 
 // --- Cars ---------------------------------------------------------------------------------------
 
-function driveCar(map: BlockMap, car: Car, input: PlayerInput, dt: number): void {
+function driveCar(world: World, car: Car, input: PlayerInput, dt: number): void {
+  const { map } = world;
   const m = CAR_MODELS[car.model];
   const cos = Math.cos(car.heading);
   const sin = Math.sin(car.heading);
@@ -338,14 +380,22 @@ function driveCar(map: BlockMap, car: Car, input: PlayerInput, dt: number): void
   car.vy = sin * forward - cos * side;
 
   const nx = car.x + car.vx * dt;
-  if (carCollides(map, m, nx, car.y, car.heading)) car.vx *= -WALL_BOUNCE;
-  else car.x = nx;
+  if (carCollides(map, m, nx, car.y, car.heading)) {
+    crash(world, car, Math.abs(car.vx));
+    car.vx *= -WALL_BOUNCE;
+  } else car.x = nx;
   const ny = car.y + car.vy * dt;
-  if (carCollides(map, m, car.x, ny, car.heading)) car.vy *= -WALL_BOUNCE;
-  else car.y = ny;
+  if (carCollides(map, m, car.x, ny, car.heading)) {
+    crash(world, car, Math.abs(car.vy));
+    car.vy *= -WALL_BOUNCE;
+  } else car.y = ny;
   const nh = car.heading + car.angVel * dt;
   if (carCollides(map, m, car.x, car.y, nh)) car.angVel = 0;
   else car.heading = wrapAngle(nh);
+}
+
+function crash(world: World, car: Car, impactSpeed: number): void {
+  if (impactSpeed > CRASH_SAFE_SPEED) damageCar(world, car, (impactSpeed - CRASH_SAFE_SPEED) * WALL_CRASH_DAMAGE, null);
 }
 
 /** Whether a point lies inside the car's rectangle. */
@@ -379,12 +429,13 @@ export function carCollides(map: BlockMap, model: CarModel, x: number, y: number
 function resolveCarCollisions(world: World): void {
   const cars = [...world.cars.values()];
   for (let i = 0; i < cars.length; i++) {
-    for (let j = i + 1; j < cars.length; j++) collideCars(world.map, cars[i]!, cars[j]!);
+    for (let j = i + 1; j < cars.length; j++) collideCars(world, cars[i]!, cars[j]!);
   }
 }
 
 /** Approximates each car as two circles (front and back) and resolves the deepest overlap. */
-function collideCars(map: BlockMap, a: Car, b: Car): void {
+function collideCars(world: World, a: Car, b: Car): void {
+  const { map } = world;
   const ma = CAR_MODELS[a.model];
   const mb = CAR_MODELS[b.model];
   const reach = (ma.length + mb.length) / 2;
@@ -421,6 +472,12 @@ function collideCars(map: BlockMap, a: Car, b: Car): void {
   }
 
   const approach = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+  if (-approach > CRASH_SAFE_SPEED) {
+    // Both cars get hurt; each driver gets the credit for what they did to the other car.
+    const damage = (-approach - CRASH_SAFE_SPEED) * CAR_CRASH_DAMAGE;
+    damageCar(world, a, damage, b.driverId);
+    damageCar(world, b, damage, a.driverId);
+  }
   if (approach < 0) {
     const impulse = (-(1 + CAR_RESTITUTION) * approach) / 2;
     a.vx += nx * impulse;
