@@ -14,6 +14,7 @@ import {
   type PlayerInfo,
 } from '@game/shared';
 import type { AssetPack } from './assets/AssetPack';
+import { KenneyPack } from './assets/kenney/KenneyPack';
 import { PlaceholderPack } from './assets/placeholder/PlaceholderPack';
 import { Keyboard } from './input/Keyboard';
 import { GameRenderer } from './render/GameRenderer';
@@ -38,13 +39,13 @@ const NAME_TAG_HEIGHT = 0.9;
  *   ?server=ws://...   game server to connect to (default: same host, port 8080)
  *   ?seed=42           city seed for offline play
  *   ?lag=150           simulate this much round-trip network delay, in ms (for testing)
+ *   ?pack=placeholder  use the plain placeholder shapes instead of the Kenney art
  */
 async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const session = await startSession(params);
 
-  const pack: AssetPack = new PlaceholderPack();
-  await pack.load();
+  const pack = await loadPack(params.get('pack'));
   const renderer = new GameRenderer(document.getElementById('game')!, pack);
   renderer.setMap(session.world.map);
   const nameTags = new NameTags(document.getElementById('tags')!);
@@ -101,6 +102,22 @@ async function main(): Promise<void> {
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+}
+
+/** The Kenney art by default; the placeholder shapes on request, or if the art fails to load. */
+async function loadPack(requested: string | null): Promise<AssetPack> {
+  if (requested !== 'placeholder') {
+    const kenney = new KenneyPack();
+    try {
+      await kenney.load();
+      return kenney;
+    } catch (error) {
+      console.warn('Could not load the Kenney art; using placeholder shapes.', error);
+    }
+  }
+  const placeholder = new PlaceholderPack();
+  await placeholder.load();
+  return placeholder;
 }
 
 function startSession(params: URLSearchParams): Promise<GameSession> {

@@ -13,6 +13,7 @@ import {
   type WeaponId,
 } from '@game/shared';
 import type { AssetPack, EffectView, EntityView, PickupViewState } from '../AssetPack';
+import { BloodPool, CarDamageEffects, box, carDamage, disposeObject, hash } from '../common';
 
 const GROUND_COLORS: Record<number, number> = {
   [Block.Road]: 0x3a3a3f,
@@ -32,8 +33,8 @@ const PROJECTILE_HEIGHT = 0.35;
 
 /** Flat-coloured boxes. Needs no files, so it's always available and useful for testing gameplay. */
 export class PlaceholderPack implements AssetPack {
-  readonly id = 'placeholder';
-  readonly name = 'Placeholder shapes';
+  readonly id: string = 'placeholder';
+  readonly name: string = 'Placeholder shapes';
 
   /** Projectiles are frequent and identical, so they share geometry and materials. */
   private readonly bulletGeometry = new THREE.BoxGeometry(0.34, 0.08, 0.05);
@@ -138,36 +139,20 @@ export class PlaceholderPack implements AssetPack {
       group.add(light);
     }
 
-    // Smoke when badly damaged, flames when it's about to blow.
-    const smoke = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), new THREE.MeshBasicMaterial({ color: 0x555555, transparent: true, opacity: 0.5 }));
-    smoke.position.set(m.length * 0.3, 0, 0.55);
-    const flames = new THREE.Group();
-    for (let i = 0; i < 3; i++) {
-      const flame = box(0.26, 0.26, 0.35, i === 1 ? 0xffd23f : 0xff6a00);
-      (flame.material as THREE.MeshLambertMaterial).emissive.setHex(i === 1 ? 0xffb000 : 0xff4000);
-      flame.position.set(m.length * 0.25 - i * 0.15, (i - 1) * 0.15, 0.55);
-      flames.add(flame);
-    }
-    group.add(smoke, flames);
+    const effects = new CarDamageEffects(m);
+    group.add(effects.object);
 
     const bodyMaterial = body.material as THREE.MeshLambertMaterial;
     const cabinMaterial = cabin.material as THREE.MeshLambertMaterial;
     const burnt = new THREE.Color(0x1c1c1c);
-    let time = Math.random() * 10;
     return {
       object: group,
       update: (dt, state) => {
-        time += dt;
-        const damage = state.wrecked ? 1 : 1 - state.health / CAR_MODELS[state.model].health;
+        const damage = carDamage(state);
         bodyMaterial.color.copy(paint).lerp(burnt, state.wrecked ? 1 : damage * 0.6);
         cabinMaterial.color.copy(cabinPaint).lerp(burnt, state.wrecked ? 1 : damage * 0.6);
         lights.forEach((light) => (light.visible = !state.wrecked));
-
-        const burning = state.explodeAt !== null && !state.wrecked;
-        flames.visible = burning;
-        if (burning) flames.children.forEach((flame, i) => flame.scale.setScalar(0.8 + 0.4 * Math.abs(Math.sin(time * 12 + i * 2))));
-        smoke.visible = !burning && (state.wrecked || damage > 0.6);
-        if (smoke.visible) smoke.scale.setScalar(1 + 0.25 * Math.sin(time * 3));
+        effects.update(dt, state);
       },
       dispose: () => disposeObject(group),
     };
@@ -193,21 +178,17 @@ export class PlaceholderPack implements AssetPack {
     nose.position.set(PED_RADIUS, 0, 0.35);
     figure.add(nose);
 
-    const blood = new THREE.Mesh(new THREE.CircleGeometry(0.45, 20), new THREE.MeshBasicMaterial({ color: 0x6d0a0a }));
-    blood.position.set(-0.25, 0, 0.015);
-    group.add(blood);
+    const blood = new BloodPool();
+    group.add(blood.object);
 
-    let deadFor = 0;
     return {
       object: group,
       update: (dt, state) => {
         const dead = state.respawnAt !== null;
-        deadFor = dead ? deadFor + dt : 0;
         // Tip over backwards and lie flat on the ground.
         figure.rotation.y = dead ? -Math.PI / 2 : 0;
         figure.position.set(dead ? -0.05 : 0, 0, dead ? PED_RADIUS : 0);
-        blood.visible = dead;
-        blood.scale.setScalar(Math.min(0.2 + deadFor, 1));
+        blood.update(dt, dead);
       },
       dispose: () => disposeObject(group),
     };
@@ -289,28 +270,11 @@ export class PlaceholderPack implements AssetPack {
   }
 }
 
-function hasDash(map: BlockMap, cell: number): boolean {
+/** Whether a road cell gets a centre-line dash (every other marked cell). */
+export function hasDash(map: BlockMap, cell: number): boolean {
   const variant = map.variants[cell];
   if (map.kinds[cell] !== Block.Road || variant === RoadMarking.None) return false;
   const x = cell % map.width;
   const y = Math.floor(cell / map.width);
   return (variant === RoadMarking.CenterHorizontal ? x : y) % 2 === 0;
-}
-
-function box(x: number, y: number, z: number, color: number): THREE.Mesh {
-  return new THREE.Mesh(new THREE.BoxGeometry(x, y, z), new THREE.MeshLambertMaterial({ color }));
-}
-
-function hash(x: number, y: number): number {
-  const h = Math.imul(x, 73856093) ^ Math.imul(y, 19349663);
-  return ((h >>> 0) % 1000) / 1000;
-}
-
-function disposeObject(root: THREE.Object3D): void {
-  root.traverse((obj) => {
-    if (obj instanceof THREE.Mesh) {
-      obj.geometry.dispose();
-      (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach((m) => m.dispose());
-    }
-  });
 }

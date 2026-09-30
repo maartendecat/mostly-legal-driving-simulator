@@ -81,8 +81,8 @@ The game never touches graphics directly. It goes through the `AssetPack` interf
 
 | Pack | Status | Use |
 |---|---|---|
-| `PlaceholderPack` | ✅ done | Coloured boxes. Needs no files; good for gameplay work. |
-| Open pack | planned | Freely licensed art (e.g. Kenney CC0) and our own maps. Default for public servers. |
+| `KenneyPack` | ✅ default | Free CC0 art by [Kenney](https://kenney.nl): 3D cars (Car Kit), people, ground tiles, crates and bushes (Top-down Shooter); building facades drawn in code. Files in `packages/client/public/assets/kenney/`. |
+| `PlaceholderPack` | ✅ done | Coloured boxes. Needs no files; good for gameplay work. Use `?pack=placeholder`. |
 | Classic pack | planned | Converted in the browser from the player's **own** GTA2 `.sty`/`.gmp` files. Cached in IndexedDB, never uploaded or distributed. |
 
 Gameplay data (car sizes and speeds, collision, map layout) lives in `@game/shared`, not in asset
@@ -101,5 +101,5 @@ maps and name. `.sty` and `.gmp` files are gitignored.
    scoreboard; ✅ 3d player arrows; ✅ 3e Points and Tag modes
 4. (optional) Car handling: mass, speed-dependent steering
 5. ✅ 5a Lobby and game rooms; next a map editor (5b)
-6. Open asset pack, then the classic pack importer
+6. Graphics: ✅ 6a Kenney CC0 art pack; next the classic pack importer (6b)
 7. Netcode tuning: WebRTC/WebTransport, delta compression, lag compensation; hosting
