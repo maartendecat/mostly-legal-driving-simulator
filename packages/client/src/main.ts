@@ -22,7 +22,7 @@ import type { GameSession } from './session/GameSession';
 import { LocalSession } from './session/LocalSession';
 import { NetworkSession } from './session/NetworkSession';
 import { describeOwnDeath } from './ui/deathText';
-import { showJoinScreen } from './ui/JoinScreen';
+import { showLobbyScreen } from './ui/LobbyScreen';
 import { KillFeed } from './ui/KillFeed';
 import { NameTags, type NameTag } from './ui/NameTags';
 import { PlayerArrows, type PlayerArrow } from './ui/PlayerArrows';
@@ -62,6 +62,12 @@ async function main(): Promise<void> {
   window.addEventListener('keydown', (e) => toggleScoreboard(e, true));
   window.addEventListener('keyup', (e) => toggleScoreboard(e, false));
   window.addEventListener('blur', () => (scoreboard.held = false));
+  // Esc leaves the game and goes back to the lobby.
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'Escape') return;
+    if (session instanceof NetworkSession) session.close();
+    location.reload();
+  });
   let lastIt: number | null = null;
   const toast = new Toast(document.getElementById('toast')!);
   let blockedPickupId: number | null = null;
@@ -103,11 +109,7 @@ function startSession(params: URLSearchParams): Promise<GameSession> {
 
   const serverUrl = params.get('server') ?? `ws://${location.hostname}:${DEFAULT_SERVER_PORT}`;
   const lagMs = Number(params.get('lag')) || 0;
-  return showJoinScreen({
-    serverUrl,
-    connect: (name) => NetworkSession.connect(serverUrl, { name, lagMs }),
-    playOffline: () => new LocalSession(seed),
-  });
+  return showLobbyScreen({ serverUrl, lagMs, playOffline: () => new LocalSession(seed) });
 }
 
 /**
@@ -207,6 +209,7 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
     'J or Ctrl    fire',
     'Z / X        switch weapon',
     session.match ? 'Tab          scores' : '',
+    'Esc          leave',
     '',
     me && session instanceof NetworkSession ? `You are ${me.name}` : '',
     others.length > 0 ? `Also here: ${others.join(', ')}` : '',

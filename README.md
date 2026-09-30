@@ -15,8 +15,11 @@ npm test           # simulation and server tests
 npm run typecheck
 ```
 
-Open http://localhost:5173 in several tabs or browsers, pick a name and press *Play online* to get
-several players in the same city. *Play offline* runs single-player without a server. URL options:
+Open http://localhost:5173, pick a name and join a room from the lobby, or create your own (name,
+mode, time limit). Every room is its own game with its own city. The server always has one
+permanent room; rooms players create close a minute after the last player leaves (max 8 players
+per room, 20 rooms). Press Esc in a game to go back to the lobby. *Play offline* runs single-player
+without a server. URL options:
 `?offline` to force single-player, `?server=ws://host:port` to pick a server, `?lag=200` to
 simulate a slow connection.
 
@@ -36,10 +39,11 @@ Online games are matches in one of GTA2's three modes:
 - **Tag**: one player is "it" and can't pick up weapons, can't see arrows, and their car takes
   double damage. Kill "it" to become "it". Time as "it" (alive) counts: first to 2 minutes wins.
 
-If nobody reaches the limit, whoever leads after 10 minutes wins. Then there's a 10-second break
+If nobody reaches the limit, whoever leads when time runs out wins. Then there's a 10-second break
 showing the scores and a new match starts. Hold Tab for the scoreboard. Other players show up as
-arrows in their colour circling your character (in Tag, only "it" gets an arrow). Configure the
-server with environment variables:
+arrows in their colour circling your character (in Tag, only "it" gets an arrow). Rooms created in
+the lobby pick their own mode and time limit; the server's permanent room is configured with
+environment variables:
 
 ```bash
 MODE=points npm run server          # frag (default), points, tag, or rotate (all three in turn)
@@ -56,8 +60,9 @@ packages/
   shared/   Game simulation: map, car physics, peds, rules. No DOM, no rendering, no networking.
             Runs identically on the server (authoritative) and in the browser (prediction).
   client/   Browser client: Vite + Three.js renderer, input, asset packs.
-  server/   Node.js authoritative server (WebSockets). Clients send only their input; the server
-            runs the world and broadcasts snapshots 30 times per second.
+  server/   Node.js authoritative server (WebSockets): a lobby plus any number of game rooms.
+            Clients send only their input; each room runs its world and broadcasts snapshots
+            30 times per second.
 ```
 
 Online, the client predicts its own movement: it applies each input locally straight away and sends
@@ -94,6 +99,7 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 3. Combat: ✅ 3a weapons (pistol, machine gun, rocket launcher) and pickups; ✅ 3b health,
    damage, death and respawning, exploding cars; ✅ 3c Frag mode with kill feed and
    scoreboard; ✅ 3d player arrows; ✅ 3e Points and Tag modes
-4. Lobbies and matchmaking; map editor
-5. Open asset pack, then the classic pack importer
-6. Netcode tuning: WebRTC/WebTransport, delta compression, lag compensation
+4. (optional) Car handling: mass, speed-dependent steering
+5. ✅ 5a Lobby and game rooms; next a map editor (5b)
+6. Open asset pack, then the classic pack importer
+7. Netcode tuning: WebRTC/WebTransport, delta compression, lag compensation; hosting

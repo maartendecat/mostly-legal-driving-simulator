@@ -1,6 +1,6 @@
 import type { GameEvent, Pickup, Projectile } from './combat';
 import type { PlayerInput } from './input';
-import type { MatchState, PlayerScore } from './match';
+import { MATCH_MODES, type MatchMode, type MatchPhase, type MatchState, type PlayerScore } from './match';
 import type { Car, Ped, World } from './world';
 
 /**
@@ -13,6 +13,31 @@ export const DEFAULT_SERVER_PORT = 8080;
 export const SNAPSHOT_EVERY_TICKS = 2;
 
 export const MAX_NAME_LENGTH = 16;
+export const MAX_ROOM_NAME_LENGTH = 24;
+export const MAX_PLAYERS_PER_ROOM = 8;
+/** Upper bounds for what a room's creator can ask for. */
+export const MAX_TIME_LIMIT_MINUTES = 60;
+export const MAX_SCORE_LIMITS: Record<MatchMode, number> = { frag: 1000, points: 1_000_000, tag: 3600 };
+
+/** What a player chooses when creating a room. */
+export interface RoomSettings {
+  name: string;
+  mode: MatchMode;
+  /** Frags, points, or seconds as "it"; 0 for none. Omitted: the mode's default. */
+  scoreLimit?: number;
+  /** Match length; 0 for none. Omitted: the default. */
+  timeLimitMinutes?: number;
+}
+
+/** A room as listed in the lobby. */
+export interface RoomInfo {
+  id: string;
+  name: string;
+  mode: MatchMode;
+  players: number;
+  maxPlayers: number;
+  phase: MatchPhase;
+}
 
 export interface PlayerInfo extends PlayerScore {
   pedId: number;
@@ -39,8 +64,10 @@ export interface Snapshot {
 export const MAX_QUEUED_INPUTS = 60;
 
 export type ClientMessage =
-  /** First message after connecting; the server creates the player's ped in response. */
-  | { type: 'join'; name: string }
+  /** Joins a room (the default room without `roomId`); the server creates the player's ped. */
+  | { type: 'join'; name: string; roomId?: string }
+  /** Creates a room and joins it straight away. */
+  | { type: 'createRoom'; name: string; room: RoomSettings }
   /**
    * One tick of input, sent every client tick. `seq` increases by one per tick; the server applies
    * inputs in order, one per server tick, and reports the last applied `seq` back in `acks`.
@@ -49,7 +76,10 @@ export type ClientMessage =
   | { type: 'ping'; time: number };
 
 export type ServerMessage =
-  | { type: 'welcome'; pedId: number; seed: number; tickRate: number; snapshotEveryTicks: number }
+  /** Sent on connecting and whenever the list changes, to connections not in a room. */
+  | { type: 'rooms'; rooms: RoomInfo[] }
+  | { type: 'joinFailed'; reason: string }
+  | { type: 'welcome'; roomId: string; roomName: string; pedId: number; seed: number; tickRate: number; snapshotEveryTicks: number }
   /**
    * `acks` maps ped id to the `seq` of that player's last input included in this snapshot.
    * `events` are all events since the previous snapshot.
@@ -110,17 +140,41 @@ export function parseClientMessage(data: string): ClientMessage | null {
       },
     };
   }
-  if (msg.type === 'join' && typeof msg.name === 'string') return { type: 'join', name: sanitizeName(msg.name) };
+  if (msg.type === 'join' && typeof msg.name === 'string') {
+    const roomId = typeof msg.roomId === 'string' ? msg.roomId.slice(0, 64) : undefined;
+    return { type: 'join', name: sanitizeName(msg.name), ...(roomId !== undefined ? { roomId } : {}) };
+  }
+  if (msg.type === 'createRoom' && typeof msg.name === 'string' && typeof msg.room === 'object' && msg.room !== null) {
+    const room = parseRoomSettings(msg.room as Record<string, unknown>);
+    return room ? { type: 'createRoom', name: sanitizeName(msg.name), room } : null;
+  }
   if (msg.type === 'ping' && typeof msg.time === 'number') return { type: 'ping', time: msg.time };
   return null;
 }
 
+/** Validates room settings from a client; limits are clamped to sane ranges. Null if unusable. */
+function parseRoomSettings(raw: Record<string, unknown>): RoomSettings | null {
+  const mode = raw.mode as MatchMode;
+  if (!MATCH_MODES.includes(mode) || typeof raw.name !== 'string') return null;
+  const name = sanitizeName(raw.name, MAX_ROOM_NAME_LENGTH);
+  const clamp = (value: unknown, max: number) =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.min(Math.max(Math.round(value), 0), max) : undefined;
+  const scoreLimit = clamp(raw.scoreLimit, MAX_SCORE_LIMITS[mode]);
+  const timeLimitMinutes = clamp(raw.timeLimitMinutes, MAX_TIME_LIMIT_MINUTES);
+  return {
+    name,
+    mode,
+    ...(scoreLimit !== undefined ? { scoreLimit } : {}),
+    ...(timeLimitMinutes !== undefined ? { timeLimitMinutes } : {}),
+  };
+}
+
 /** Strips control characters and extra whitespace and limits the length. May return ''. */
-export function sanitizeName(name: string): string {
+export function sanitizeName(name: string, maxLength = MAX_NAME_LENGTH): string {
   return name
     .replace(/[\p{C}]/gu, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, MAX_NAME_LENGTH)
+    .slice(0, maxLength)
     .trim();
 }

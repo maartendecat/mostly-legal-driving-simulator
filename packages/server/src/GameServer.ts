@@ -1,69 +1,74 @@
+import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
   DEFAULT_MATCH_SETTINGS,
-  Match,
-  MAX_NAME_LENGTH,
-  MAX_QUEUED_INPUTS,
-  NO_INPUT,
-  SNAPSHOT_EVERY_TICKS,
   TICK_DT,
   TICK_RATE,
-  captureSnapshot,
-  createWorld,
-  generateCity,
   parseClientMessage,
-  removePed,
-  spawnPed,
-  stepWorld,
-  type GameEvent,
+  secondsToTicks,
   type MatchSettings,
-  type PlayerInfo,
-  type PlayerInput,
-  type ServerMessage,
-  type World,
+  type RoomSettings,
 } from '@game/shared';
+import { GameRoom, send, type Player } from './GameRoom';
 
 export interface GameServerOptions {
   port: number;
+  /** City seed and match settings for the permanent default room. */
   seed: number;
   match?: Partial<MatchSettings>;
+  defaultRoomName?: string;
+  /** Rooms players create are closed after being empty this long. */
+  emptyRoomTicks?: number;
+  maxRooms?: number;
 }
 
-interface Player {
+const DEFAULT_EMPTY_ROOM_TICKS = secondsToTicks(60);
+const DEFAULT_MAX_ROOMS = 20;
+/** How often lobby connections get the room list, if it changed. */
+const LOBBY_UPDATE_TICKS = secondsToTicks(1);
+
+/** A connection, and the room it's playing in once it has joined one. */
+interface Connection {
   socket: WebSocket;
-  name: string;
-  pedId: number;
-  /** Inputs received but not yet applied, oldest first. */
-  queue: { seq: number; input: PlayerInput }[];
-  /** The input applied last tick; repeated if the queue runs dry (late or lost packets). */
-  input: PlayerInput;
-  /** `seq` of the last input applied, reported back to the client for reconciliation. */
-  ack: number;
+  room: GameRoom | null;
+  player: Player | null;
 }
 
 /**
- * Authoritative game server: owns the only real copy of the world, applies player inputs and
- * broadcasts snapshots. Clients never tell the server where they are, only which keys are down.
+ * The game server: accepts connections, keeps the lobby's room list up to date, creates and closes
+ * rooms, and runs every room's simulation at the fixed tick rate.
  */
 export class GameServer {
-  readonly world: World;
-  readonly match: Match;
   private readonly wss: WebSocketServer;
-  /** Players who have joined. Connections that haven't sent `join` yet only get pongs. */
-  private readonly players = new Set<Player>();
+  private readonly rooms = new Map<string, GameRoom>();
+  private readonly connections = new Set<Connection>();
+  private readonly defaultRoom: GameRoom;
   private readonly timer: ReturnType<typeof setInterval>;
   private lastTime = performance.now();
   private accumulator = 0;
-  private joinCount = 0;
-  /** Events since the last snapshot; snapshots go out every few ticks, events happen every tick. */
-  private pendingEvents: GameEvent[] = [];
+  private ticks = 0;
+  private lastRoomList = '';
 
   constructor(private readonly options: GameServerOptions) {
-    this.world = createWorld(generateCity(options.seed), options.seed);
-    this.match = new Match({ ...DEFAULT_MATCH_SETTINGS, ...options.match }, this.world);
+    this.defaultRoom = this.addRoom({
+      name: options.defaultRoomName ?? 'Downtown',
+      seed: options.seed,
+      match: { ...DEFAULT_MATCH_SETTINGS, ...options.match },
+      permanent: true,
+    });
     this.wss = new WebSocketServer({ port: options.port, maxPayload: 1024 });
     this.wss.on('connection', (socket) => this.onConnection(socket));
     this.timer = setInterval(() => this.update(), 1000 / TICK_RATE);
+  }
+
+  /** The permanent default room's world. */
+  get world() {
+    return this.defaultRoom.world;
+  }
+
+  /** The permanent default room's match. */
+  get match() {
+    return this.defaultRoom.match;
   }
 
   get port(): number {
@@ -71,8 +76,17 @@ export class GameServer {
     return address !== null && typeof address === 'object' ? address.port : this.options.port;
   }
 
+  /** Players in all rooms. */
   get playerCount(): number {
-    return this.players.size;
+    return [...this.rooms.values()].reduce((sum, room) => sum + room.playerCount, 0);
+  }
+
+  get roomCount(): number {
+    return this.rooms.size;
+  }
+
+  room(id: string): GameRoom | undefined {
+    return this.rooms.get(id);
   }
 
   /** Resolves once the server is accepting connections. */
@@ -91,63 +105,61 @@ export class GameServer {
   }
 
   private onConnection(socket: WebSocket): void {
-    let player: Player | null = null;
+    const connection: Connection = { socket, room: null, player: null };
+    this.connections.add(connection);
+    send(socket, { type: 'rooms', rooms: this.roomList() });
 
     socket.on('message', (data) => {
       const msg = parseClientMessage(data.toString());
       if (!msg) return;
       if (msg.type === 'ping') {
         send(socket, { type: 'pong', time: msg.time });
+      } else if (msg.type === 'input') {
+        if (connection.room && connection.player) connection.room.receiveInput(connection.player, msg.seq, msg.input);
+      } else if (connection.room) {
+        return; // already playing: one room per connection
       } else if (msg.type === 'join') {
-        if (!player) player = this.join(socket, msg.name);
-      } else if (player) {
-        const newest = player.queue.at(-1)?.seq ?? player.ack;
-        if (msg.seq <= newest) return; // duplicate or out of order
-        player.queue.push({ seq: msg.seq, input: msg.input });
-        if (player.queue.length > MAX_QUEUED_INPUTS) player.queue.shift();
+        const room = msg.roomId === undefined ? this.defaultRoom : this.rooms.get(msg.roomId);
+        if (!room) return send(socket, { type: 'joinFailed', reason: 'That room no longer exists.' });
+        if (room.isFull) return send(socket, { type: 'joinFailed', reason: 'That room is full.' });
+        this.enter(connection, room, msg.name);
+      } else if (msg.type === 'createRoom') {
+        if (this.rooms.size >= (this.options.maxRooms ?? DEFAULT_MAX_ROOMS)) {
+          return send(socket, { type: 'joinFailed', reason: 'Too many rooms open right now; join one of them instead.' });
+        }
+        this.enter(connection, this.createRoom(msg.room), msg.name);
       }
     });
     socket.on('close', () => {
-      if (!player) return;
-      this.players.delete(player);
-      this.match.removePlayer(this.world, player.pedId);
-      removePed(this.world, player.pedId);
+      this.connections.delete(connection);
+      if (connection.room && connection.player) connection.room.leave(connection.player);
     });
   }
 
-  private join(socket: WebSocket, requestedName: string): Player {
-    this.joinCount++;
-    const ped = spawnPed(this.world);
-    const player: Player = {
-      socket,
-      name: this.uniqueName(requestedName || `Player ${this.joinCount}`),
-      pedId: ped.id,
-      queue: [],
-      input: { ...NO_INPUT },
-      ack: 0,
-    };
-    this.players.add(player);
-    this.match.addPlayer(this.world, ped.id);
-    send(socket, {
-      type: 'welcome',
-      pedId: ped.id,
-      seed: this.options.seed,
-      tickRate: TICK_RATE,
-      snapshotEveryTicks: SNAPSHOT_EVERY_TICKS,
-    });
-    send(socket, this.snapshotMessage([]));
-    return player;
+  private enter(connection: Connection, room: GameRoom, name: string): void {
+    connection.room = room;
+    connection.player = room.join(connection.socket, name);
   }
 
-  /** Appends " 2", " 3", ... if another player already uses this name. */
-  private uniqueName(name: string): string {
-    const taken = new Set([...this.players].map((p) => p.name.toLowerCase()));
-    if (!taken.has(name.toLowerCase())) return name;
-    for (let n = 2; ; n++) {
-      const suffix = ` ${n}`;
-      const candidate = name.slice(0, MAX_NAME_LENGTH - suffix.length) + suffix;
-      if (!taken.has(candidate.toLowerCase())) return candidate;
+  private createRoom(settings: RoomSettings): GameRoom {
+    const scoreLimits = { ...DEFAULT_MATCH_SETTINGS.scoreLimits };
+    if (settings.scoreLimit !== undefined) {
+      scoreLimits[settings.mode] = settings.mode === 'tag' ? secondsToTicks(settings.scoreLimit) : settings.scoreLimit;
     }
+    const timeLimitTicks =
+      settings.timeLimitMinutes !== undefined ? secondsToTicks(settings.timeLimitMinutes * 60) : DEFAULT_MATCH_SETTINGS.timeLimitTicks;
+    return this.addRoom({
+      name: settings.name || `Room ${this.rooms.size + 1}`,
+      seed: randomBytes(4).readUInt32LE(0),
+      match: { ...DEFAULT_MATCH_SETTINGS, modes: [settings.mode], scoreLimits, timeLimitTicks },
+      permanent: false,
+    });
+  }
+
+  private addRoom(options: Omit<ConstructorParameters<typeof GameRoom>[0], 'id'>): GameRoom {
+    const room = new GameRoom({ ...options, id: randomBytes(6).toString('base64url') });
+    this.rooms.set(room.id, room);
+    return room;
   }
 
   private update(): void {
@@ -161,42 +173,27 @@ export class GameServer {
   }
 
   private tick(): void {
-    const inputs = new Map<number, PlayerInput>();
-    // Between matches everyone is frozen; inputs are still consumed (and acked) as usual.
-    const frozen = this.match.state.phase === 'intermission';
-    for (const player of this.players) {
-      const next = player.queue.shift();
-      if (next) {
-        player.input = next.input;
-        player.ack = next.seq;
-      }
-      inputs.set(player.pedId, frozen ? NO_INPUT : player.input);
+    this.ticks++;
+    const emptyLimit = this.options.emptyRoomTicks ?? DEFAULT_EMPTY_ROOM_TICKS;
+    for (const room of this.rooms.values()) {
+      room.tick();
+      if (!room.options.permanent && room.emptyTicks >= emptyLimit) this.rooms.delete(room.id);
     }
-    stepWorld(this.world, inputs);
-    this.match.update(this.world);
-    this.pendingEvents.push(...this.world.events);
+    if (this.ticks % LOBBY_UPDATE_TICKS === 0) this.updateLobby();
+  }
 
-    if (this.world.tick % SNAPSHOT_EVERY_TICKS === 0 && this.players.size > 0) {
-      const message = JSON.stringify(this.snapshotMessage(this.pendingEvents));
-      this.pendingEvents = [];
-      for (const player of this.players) {
-        if (player.socket.readyState === WebSocket.OPEN) player.socket.send(message);
-      }
+  /** Sends the room list to everyone in the lobby, if it changed. */
+  private updateLobby(): void {
+    const rooms = this.roomList();
+    const json = JSON.stringify(rooms);
+    if (json === this.lastRoomList) return;
+    this.lastRoomList = json;
+    for (const connection of this.connections) {
+      if (!connection.room) send(connection.socket, { type: 'rooms', rooms });
     }
   }
 
-  private snapshotMessage(events: GameEvent[]): ServerMessage {
-    const acks: Record<number, number> = {};
-    const players: PlayerInfo[] = [];
-    for (const player of this.players) {
-      acks[player.pedId] = player.ack;
-      const score = this.match.scores.get(player.pedId) ?? { frags: 0, deaths: 0, points: 0, itTicks: 0 };
-      players.push({ pedId: player.pedId, name: player.name, ...score });
-    }
-    return { type: 'snapshot', ...captureSnapshot(this.world), acks, players, match: this.match.state, events };
+  private roomList() {
+    return [...this.rooms.values()].map((room) => room.info());
   }
-}
-
-function send(socket: WebSocket, message: ServerMessage): void {
-  socket.send(JSON.stringify(message));
 }

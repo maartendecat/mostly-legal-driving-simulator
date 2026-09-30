@@ -16,6 +16,7 @@ import {
 } from '@game/shared';
 import { captureTransforms, lerpTransform, type TransformSnapshot } from '../render/transforms';
 import type { FrameState, GameSession } from './GameSession';
+import { Lobby } from './Lobby';
 import { SnapshotBuffer } from './SnapshotBuffer';
 
 type Welcome = Extract<ServerMessage, { type: 'welcome' }>;
@@ -23,6 +24,8 @@ type SnapshotMessage = Extract<ServerMessage, { type: 'snapshot' }>;
 
 export interface ConnectOptions {
   name: string;
+  /** The room to join; the server's default room if omitted. */
+  roomId?: string;
   timeoutMs?: number;
   /** Artificial round-trip delay, to test how the game feels on a slow connection. */
   lagMs?: number;
@@ -46,6 +49,7 @@ const PING_INTERVAL_MS = 2000;
  */
 export class NetworkSession implements GameSession {
   readonly myPedId: number;
+  readonly roomName: string;
   private readonly serverWorld: World;
   private predicted: World;
   private displayWorld: World;
@@ -64,28 +68,20 @@ export class NetworkSession implements GameSession {
   private connected = true;
   private readonly pinger: ReturnType<typeof setInterval>;
 
-  /** Connects to a game server and resolves once the server has welcomed us. */
-  static connect(url: string, { name, timeoutMs = 3000, lagMs = 0 }: ConnectOptions): Promise<NetworkSession> {
-    return new Promise((resolve, reject) => {
-      const socket = new WebSocket(url);
-      const fail = (reason: string) => {
-        clearTimeout(timer);
-        socket.close();
-        reject(new Error(reason));
-      };
-      const timer = setTimeout(() => fail(`Timed out connecting to ${url}`), timeoutMs);
-      socket.addEventListener('error', () => fail(`Could not connect to ${url}`));
-      socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'join', name } satisfies ClientMessage)));
-      const onWelcome = (event: MessageEvent) => {
-        const message = JSON.parse(event.data as string) as ServerMessage;
-        if (message.type !== 'welcome') return;
-        clearTimeout(timer);
-        socket.removeEventListener('message', onWelcome);
-        // Constructed synchronously, so no message can slip past between welcome and the session's listener.
-        resolve(new NetworkSession(socket, message, lagMs));
-      };
-      socket.addEventListener('message', onWelcome);
-    });
+  /** Connects to a game server and joins a room in one go (the lobby screen uses Lobby directly). */
+  static async connect(url: string, { name, roomId, timeoutMs, lagMs }: ConnectOptions): Promise<NetworkSession> {
+    const lobby = await Lobby.open(url, { timeoutMs, lagMs });
+    try {
+      return await lobby.join(name, roomId);
+    } catch (error) {
+      lobby.close();
+      throw error;
+    }
+  }
+
+  /** Takes over a lobby connection once the server has welcomed us into a room. */
+  static fromWelcome(socket: WebSocket, welcome: Welcome, lagMs: number): NetworkSession {
+    return new NetworkSession(socket, welcome, lagMs);
   }
 
   private constructor(
@@ -94,6 +90,7 @@ export class NetworkSession implements GameSession {
     private readonly lagMs: number,
   ) {
     this.myPedId = welcome.pedId;
+    this.roomName = welcome.roomName;
     this.snapshots = new SnapshotBuffer(welcome.tickRate);
     // The map is generated from the seed; entities come from snapshots.
     this.serverWorld = createWorld(generateCity(welcome.seed), welcome.seed);
@@ -139,7 +136,7 @@ export class NetworkSession implements GameSession {
     const players = this.serverWorld.peds.size;
     const ping = this.pingMs === null ? '' : ` · ${Math.round(this.pingMs)} ms`;
     const lag = this.lagMs > 0 ? ` (incl. ${this.lagMs} ms simulated lag)` : '';
-    return `Online · ${players} player${players === 1 ? '' : 's'}${ping}${lag}`;
+    return `Online · ${this.roomName} · ${players} player${players === 1 ? '' : 's'}${ping}${lag}`;
   }
 
   update(frameDt: number, sampleInput: () => PlayerInput): FrameState {
