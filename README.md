@@ -79,6 +79,27 @@ With Fly.io, for example: `fly launch` (it finds the Dockerfile; internal port 8
 - After joining a room, the address bar is an invite link (`…/#room=abc123`): send it to friends
   and they land in the same room.
 
+### Deploying to Railway
+
+About $5 a month on Railway's Hobby plan (which includes $5 of usage; this server should fit in
+it). New accounts get a one-time $5 trial to try it first. `railway.json` in this repo already
+tells Railway to build the Dockerfile and to use `/healthz` as the health check.
+
+1. Put the repo on GitHub:
+   ```bash
+   git remote add origin git@github.com:<you>/<repo>.git
+   git push -u origin main
+   ```
+2. On [railway.com](https://railway.com), sign in with GitHub, then **New Project → Deploy from
+   GitHub repo** and pick the repo. Railway builds and starts the server.
+3. In the service's **Variables**, add `PORT` = `8080` (plus `MODE`, `TIME_LIMIT` etc. if you
+   like; see above).
+4. In **Settings → Networking → Public Networking**, click **Generate Domain** and use port
+   `8080`. You get an address like `https://<name>.up.railway.app`: that's the game. Share it,
+   or join a room and share the invite link.
+5. Keep it at **one replica**: rooms live in memory. Every push to `main` redeploys, which ends
+   the games in progress.
+
 ## Layout
 
 ```

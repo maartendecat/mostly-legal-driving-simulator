@@ -14,5 +14,6 @@ RUN npm run build
 
 ENV NODE_ENV=production PORT=8080
 EXPOSE 8080
-HEALTHCHECK CMD wget -qO- http://localhost:8080/healthz || exit 1
+# Hosts may set their own PORT; the check follows it.
+HEALTHCHECK CMD wget -qO- "http://localhost:${PORT:-8080}/healthz" || exit 1
 CMD ["npm", "start", "-w", "@game/server"]
