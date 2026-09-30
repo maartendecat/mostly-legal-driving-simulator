@@ -1,9 +1,9 @@
-import { CAR_MODELS, DEFAULT_SERVER_PORT, PED_MAX_HEALTH, TICK_RATE, WEAPONS, carSpeed, type GameEvent } from '@game/shared';
+import { CAR_MODELS, DEFAULT_SERVER_PORT, PED_MAX_HEALTH, TICK_RATE, WEAPONS, carSpeed, isDead, type GameEvent, type Ped, type PlayerInfo } from '@game/shared';
 import type { AssetPack } from './assets/AssetPack';
 import { PlaceholderPack } from './assets/placeholder/PlaceholderPack';
 import { Keyboard } from './input/Keyboard';
 import { GameRenderer } from './render/GameRenderer';
-import type { TransformSnapshot } from './render/transforms';
+import type { Transform, TransformSnapshot } from './render/transforms';
 import type { GameSession } from './session/GameSession';
 import { LocalSession } from './session/LocalSession';
 import { NetworkSession } from './session/NetworkSession';
@@ -11,6 +11,7 @@ import { describeOwnDeath } from './ui/deathText';
 import { showJoinScreen } from './ui/JoinScreen';
 import { KillFeed } from './ui/KillFeed';
 import { NameTags, type NameTag } from './ui/NameTags';
+import { PlayerArrows, type PlayerArrow } from './ui/PlayerArrows';
 import { Scoreboard } from './ui/Scoreboard';
 
 /** Height above the ground at which name tags float, in blocks. */
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
   const renderer = new GameRenderer(document.getElementById('game')!, pack);
   renderer.setMap(session.world.map);
   const nameTags = new NameTags(document.getElementById('tags')!);
+  const arrows = new PlayerArrows(document.getElementById('arrows')!);
   const hud = document.getElementById('hud')!;
   const wasted = new WastedScreen();
   const killFeed = new KillFeed(document.getElementById('killfeed')!);
@@ -62,7 +64,9 @@ async function main(): Promise<void> {
     wasted.update(session, events);
     for (const event of events) if (event.type === 'death') killFeed.add(session, event);
     scoreboard.update(session);
-    nameTags.update(nameTagsFor(session, transforms, renderer));
+    const others = otherPlayers(session, transforms);
+    nameTags.update(nameTagsFor(others, renderer));
+    updateArrows(arrows, session, others, transforms, renderer);
 
     if (frameDt > 0) fps += (1 / frameDt - fps) * 0.05;
     hud.textContent = hudText(session, fps, pack);
@@ -84,18 +88,59 @@ function startSession(params: URLSearchParams): Promise<GameSession> {
   });
 }
 
-/** A tag over every other player: over their ped on foot, or over the car they're driving. */
-function nameTagsFor(session: GameSession, transforms: TransformSnapshot, renderer: GameRenderer): NameTag[] {
-  const tags: NameTag[] = [];
+interface OtherPlayer {
+  player: PlayerInfo;
+  ped: Ped;
+  /** Where they're drawn: their ped on foot, or the car they're driving. */
+  position: Transform;
+}
+
+function otherPlayers(session: GameSession, transforms: TransformSnapshot): OtherPlayer[] {
+  const result: OtherPlayer[] = [];
   for (const player of session.players) {
     if (player.pedId === session.myPedId) continue;
     const ped = session.world.peds.get(player.pedId);
-    if (!ped) continue;
-    const position = transforms.get(ped.carId ?? ped.id) ?? ped;
+    if (ped) result.push({ player, ped, position: transforms.get(ped.carId ?? ped.id) ?? ped });
+  }
+  return result;
+}
+
+function nameTagsFor(others: readonly OtherPlayer[], renderer: GameRenderer): NameTag[] {
+  const tags: NameTag[] = [];
+  for (const { player, position } of others) {
     const screen = renderer.projectToScreen(position.x, position.y, NAME_TAG_HEIGHT);
     if (screen) tags.push({ id: player.pedId, text: player.name, ...screen });
   }
   return tags;
+}
+
+/** GTA2-style arrows circling our character, pointing at every other living player. */
+function updateArrows(
+  arrows: PlayerArrows,
+  session: GameSession,
+  others: readonly OtherPlayer[],
+  transforms: TransformSnapshot,
+  renderer: GameRenderer,
+): void {
+  const me = session.myPedId === null ? undefined : session.world.peds.get(session.myPedId);
+  if (!me) return arrows.update([], 0, 0);
+  const myPosition = transforms.get(me.carId ?? me.id) ?? me;
+  const { width, height } = renderer.viewportSize();
+  const origin = renderer.projectToScreen(myPosition.x, myPosition.y, 0) ?? { x: width / 2, y: height / 2 };
+
+  const list: PlayerArrow[] = [];
+  for (const { player, ped, position } of others) {
+    if (isDead(ped)) continue;
+    list.push({
+      id: player.pedId,
+      name: player.name,
+      color: ped.color,
+      // The camera looks straight down with north up, so world +y is screen -y.
+      dx: position.x - myPosition.x,
+      dy: -(position.y - myPosition.y),
+    });
+  }
+  arrows.update(list, origin.x, origin.y);
 }
 
 function hudText(session: GameSession, fps: number, pack: AssetPack): string {

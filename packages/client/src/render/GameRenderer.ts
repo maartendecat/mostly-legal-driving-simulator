@@ -94,6 +94,10 @@ export class GameRenderer {
     this.renderer.render(this.scene, this.camera);
   }
 
+  viewportSize(): { width: number; height: number } {
+    return { width: this.container.clientWidth, height: this.container.clientHeight };
+  }
+
   /** Projects a world position to CSS pixels in the game container, or null if it's off screen. */
   projectToScreen(x: number, y: number, z: number): { x: number; y: number } | null {
     const p = this.projected.set(x, y, z).project(this.camera);

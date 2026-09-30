@@ -42,6 +42,32 @@
         white-space: nowrap;
         will-change: transform;
       }
+      #arrows {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .player-arrow {
+        position: absolute;
+        left: 0;
+        top: 0;
+        will-change: transform;
+      }
+      .player-arrow .icon {
+        position: absolute;
+        overflow: visible;
+      }
+      .player-arrow .label {
+        position: absolute;
+        top: 22px;
+        transform: translateX(-50%);
+        padding: 0 5px;
+        border-radius: 3px;
+        background: rgba(0, 0, 0, 0.5);
+        font-size: 11px;
+        white-space: nowrap;
+      }
       #hud {
         position: fixed;
         top: 12px;
@@ -269,6 +295,7 @@
   <body>
     <div id="game"></div>
     <div id="tags"></div>
+    <div id="arrows"></div>
     <div id="hud"></div>
     <div id="match-status" hidden></div>
     <div id="killfeed"></div>
