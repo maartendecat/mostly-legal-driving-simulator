@@ -33,6 +33,21 @@ export class KillFeed {
     cause.textContent = causeName(death.cause);
     entry.append(cause);
 
+    this.push(entry);
+  }
+
+  /** Tag: announces the new "it". */
+  addNewIt(session: GameSession, pedId: number): void {
+    const entry = document.createElement('div');
+    entry.className = pedId === session.myPedId ? 'kill mine' : 'kill';
+    const name = document.createElement('span');
+    name.className = pedId === session.myPedId ? 'name me' : 'name';
+    name.textContent = pedId === session.myPedId ? 'You' : playerName(session, pedId);
+    entry.append(name, pedId === session.myPedId ? ' are IT!' : ' is IT!');
+    this.push(entry);
+  }
+
+  private push(entry: HTMLElement): void {
     this.container.append(entry);
     while (this.container.children.length > MAX_ENTRIES) this.container.firstElementChild!.remove();
     setTimeout(() => entry.remove(), ENTRY_LIFETIME_MS);

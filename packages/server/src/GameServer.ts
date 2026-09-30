@@ -1,7 +1,7 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import {
   DEFAULT_MATCH_SETTINGS,
-  FragMatch,
+  Match,
   MAX_NAME_LENGTH,
   MAX_QUEUED_INPUTS,
   NO_INPUT,
@@ -47,7 +47,7 @@ interface Player {
  */
 export class GameServer {
   readonly world: World;
-  readonly match: FragMatch;
+  readonly match: Match;
   private readonly wss: WebSocketServer;
   /** Players who have joined. Connections that haven't sent `join` yet only get pongs. */
   private readonly players = new Set<Player>();
@@ -60,7 +60,7 @@ export class GameServer {
 
   constructor(private readonly options: GameServerOptions) {
     this.world = createWorld(generateCity(options.seed), options.seed);
-    this.match = new FragMatch({ ...DEFAULT_MATCH_SETTINGS, ...options.match }, this.world.tick);
+    this.match = new Match({ ...DEFAULT_MATCH_SETTINGS, ...options.match }, this.world);
     this.wss = new WebSocketServer({ port: options.port, maxPayload: 1024 });
     this.wss.on('connection', (socket) => this.onConnection(socket));
     this.timer = setInterval(() => this.update(), 1000 / TICK_RATE);
@@ -110,7 +110,7 @@ export class GameServer {
     socket.on('close', () => {
       if (!player) return;
       this.players.delete(player);
-      this.match.removePlayer(player.pedId);
+      this.match.removePlayer(this.world, player.pedId);
       removePed(this.world, player.pedId);
     });
   }
@@ -127,7 +127,7 @@ export class GameServer {
       ack: 0,
     };
     this.players.add(player);
-    this.match.addPlayer(ped.id);
+    this.match.addPlayer(this.world, ped.id);
     send(socket, {
       type: 'welcome',
       pedId: ped.id,
@@ -190,7 +190,7 @@ export class GameServer {
     const players: PlayerInfo[] = [];
     for (const player of this.players) {
       acks[player.pedId] = player.ack;
-      const score = this.match.scores.get(player.pedId) ?? { frags: 0, deaths: 0 };
+      const score = this.match.scores.get(player.pedId) ?? { frags: 0, deaths: 0, points: 0, itTicks: 0 };
       players.push({ pedId: player.pedId, name: player.name, ...score });
     }
     return { type: 'snapshot', ...captureSnapshot(this.world), acks, players, match: this.match.state, events };

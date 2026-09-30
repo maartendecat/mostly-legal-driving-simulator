@@ -20,6 +20,8 @@ export const ROCKET_CAR_FUSE_TICKS = secondsToTicks(0.3);
 export const WRECK_TICKS = secondsToTicks(30);
 const CAR_EXPLOSION_RADIUS = 2.5;
 const CAR_EXPLOSION_DAMAGE = 150;
+/** Tag: a car driven by "it" takes this much more damage, so it catches fire quickly. */
+const IT_CAR_DAMAGE = 2;
 /** A new car only appears at a spawn point with nothing this close to it. */
 const CAR_RESPAWN_CLEARANCE = 2.5;
 
@@ -62,6 +64,7 @@ export function damagePed(world: World, ped: Ped, amount: number, attackerId: nu
  */
 export function damageCar(world: World, car: Car, amount: number, attackerId: number | null, fuseTicks = CAR_BURN_TICKS): void {
   if (car.wrecked || amount <= 0) return;
+  if (car.driverId !== null && car.driverId === world.itPedId) amount *= IT_CAR_DAMAGE;
   // Accidents don't clear the credit: shoot a car, then its driver crashes it, and it's still yours.
   if (attackerId !== null) car.lastAttackerId = attackerId;
   car.health = Math.max(0, car.health - amount);
@@ -124,6 +127,15 @@ function explodeCar(world: World, car: Car): void {
   car.removeAt = world.tick + WRECK_TICKS;
   car.vx *= 0.3;
   car.vy *= 0.3;
+  world.events.push({
+    type: 'carDestroyed',
+    tick: world.tick,
+    ownerId: car.lastAttackerId ?? -1,
+    carId: car.id,
+    attackerId: car.lastAttackerId,
+    x: car.x,
+    y: car.y,
+  });
   const driver = car.driverId === null ? undefined : world.peds.get(car.driverId);
   if (driver) damagePed(world, driver, PED_MAX_HEALTH, car.lastAttackerId, 'carExplosion');
   explode(world, car.x, car.y, CAR_EXPLOSION_RADIUS, CAR_EXPLOSION_DAMAGE, car.lastAttackerId, 'carExplosion', car.id);

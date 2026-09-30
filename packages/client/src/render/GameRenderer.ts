@@ -1,16 +1,16 @@
 import * as THREE from 'three';
 import {
+  canPickUpWeapons,
   carSpeed,
   isPickupAvailable,
   type BlockMap,
   type Car,
   type GameEvent,
   type Ped,
-  type Pickup,
   type Projectile,
   type World,
 } from '@game/shared';
-import type { AssetPack, EffectView, EntityView } from '../assets/AssetPack';
+import type { AssetPack, EffectView, EntityView, PickupViewState } from '../assets/AssetPack';
 import type { Transform, TransformSnapshot } from './transforms';
 
 /** Field of view in degrees across the shorter side of the window. */
@@ -33,7 +33,7 @@ export class GameRenderer {
   private readonly carViews = new Map<number, EntityView<Car>>();
   private readonly pedViews = new Map<number, EntityView<Ped>>();
   private readonly projectileViews = new Map<number, EntityView<Projectile>>();
-  private readonly pickupViews = new Map<number, EntityView<Pickup>>();
+  private readonly pickupViews = new Map<number, EntityView<PickupViewState>>();
   private readonly effects = new Set<EffectView>();
   private mapObject: THREE.Object3D | null = null;
   private cameraHeight = BASE_CAMERA_HEIGHT;
@@ -83,10 +83,12 @@ export class GameRenderer {
       this.place(view, ped, transforms.get(ped.id) ?? ped, frameDt);
     }
     for (const p of world.projectiles.values()) this.place(this.projectileViews.get(p.id)!, p, transforms.get(p.id) ?? p, frameDt);
+    const me = focusPedId === null ? undefined : world.peds.get(focusPedId);
+    const usable = !me || canPickUpWeapons(world, me);
     for (const pickup of world.pickups.values()) {
       const view = this.pickupViews.get(pickup.id)!;
       view.object.visible = isPickupAvailable(world, pickup);
-      this.place(view, pickup, { x: pickup.x, y: pickup.y, heading: 0 }, frameDt);
+      this.place(view, { pickup, usable }, { x: pickup.x, y: pickup.y, heading: 0 }, frameDt);
     }
     this.updateEffects(events, frameDt);
 
@@ -147,7 +149,7 @@ export class GameRenderer {
     this.camera.position.set(pos.x + this.lookahead.x, pos.y + this.lookahead.y, this.cameraHeight);
   }
 
-  private syncViews<T extends { id: number }>(views: Map<number, EntityView<T>>, entities: Map<number, T>, create: (entity: T) => EntityView<T>): void {
+  private syncViews<T extends { id: number }, S>(views: Map<number, EntityView<S>>, entities: Map<number, T>, create: (entity: T) => EntityView<S>): void {
     for (const [id, view] of views) {
       if (!entities.has(id)) {
         this.scene.remove(view.object);

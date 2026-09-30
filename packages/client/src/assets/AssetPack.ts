@@ -11,6 +11,12 @@ export interface EntityView<T = unknown> {
   dispose(): void;
 }
 
+/** A pickup plus whether the local player can take it (it looks disabled when they can't). */
+export interface PickupViewState {
+  pickup: Pickup;
+  usable: boolean;
+}
+
 /** A short-lived visual effect (spark, explosion). Positioned once by the renderer when spawned. */
 export interface EffectView {
   readonly object: Object3D;
@@ -38,7 +44,7 @@ export interface AssetPack {
   createCarView(car: Car): EntityView<Car>;
   createPedView(ped: Ped): EntityView<Ped>;
   createProjectileView(projectile: Projectile): EntityView<Projectile>;
-  createPickupView(pickup: Pickup): EntityView<Pickup>;
+  createPickupView(pickup: Pickup): EntityView<PickupViewState>;
   /** The effect for a game event, or null if this pack shows nothing for it. */
   createEffectView(event: GameEvent): EffectView | null;
 }

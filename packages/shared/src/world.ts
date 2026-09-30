@@ -92,6 +92,8 @@ export interface World {
   pickups: Map<number, Pickup>;
   /** Events from the most recent tick only; cleared at the start of every step. */
   events: GameEvent[];
+  /** Tag mode: the player who is "it" (can't pick up weapons, their car burns fast). */
+  itPedId: number | null;
   nextId: number;
   rngState: number;
 }
@@ -105,6 +107,7 @@ export function createWorld(map: BlockMap, seed = 1): World {
     projectiles: new Map(),
     pickups: new Map(),
     events: [],
+    itPedId: null,
     nextId: 1,
     rngState: seed >>> 0,
   };

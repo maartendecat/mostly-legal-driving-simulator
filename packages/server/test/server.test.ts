@@ -146,7 +146,7 @@ test('snapshots carry every event since the previous snapshot', async () => {
 });
 
 test('a frag match: kills are scored, the match ends at the limit, players freeze, then it starts over', async () => {
-  const quick = new GameServer({ port: 0, seed: 1234, match: { fragLimit: 1, intermissionTicks: 30 } });
+  const quick = new GameServer({ port: 0, seed: 1234, match: { scoreLimits: { frag: 1, points: 0, tag: 0 }, intermissionTicks: 30 } });
   await quick.listening();
   const a = new TestClient(quick.port, 'Alice');
   const b = new TestClient(quick.port, 'Bob');

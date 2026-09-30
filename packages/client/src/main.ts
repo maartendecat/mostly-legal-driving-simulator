@@ -1,4 +1,18 @@
-import { CAR_MODELS, DEFAULT_SERVER_PORT, PED_MAX_HEALTH, TICK_RATE, WEAPONS, carSpeed, isDead, type GameEvent, type Ped, type PlayerInfo } from '@game/shared';
+import {
+  CAR_MODELS,
+  DEFAULT_SERVER_PORT,
+  PED_MAX_HEALTH,
+  PICKUP_RADIUS,
+  TICK_RATE,
+  WEAPONS,
+  canPickUpWeapons,
+  carSpeed,
+  isDead,
+  isPickupAvailable,
+  type GameEvent,
+  type Ped,
+  type PlayerInfo,
+} from '@game/shared';
 import type { AssetPack } from './assets/AssetPack';
 import { PlaceholderPack } from './assets/placeholder/PlaceholderPack';
 import { Keyboard } from './input/Keyboard';
@@ -13,6 +27,7 @@ import { KillFeed } from './ui/KillFeed';
 import { NameTags, type NameTag } from './ui/NameTags';
 import { PlayerArrows, type PlayerArrow } from './ui/PlayerArrows';
 import { Scoreboard } from './ui/Scoreboard';
+import { Toast } from './ui/Toast';
 
 /** Height above the ground at which name tags float, in blocks. */
 const NAME_TAG_HEIGHT = 0.9;
@@ -47,6 +62,9 @@ async function main(): Promise<void> {
   window.addEventListener('keydown', (e) => toggleScoreboard(e, true));
   window.addEventListener('keyup', (e) => toggleScoreboard(e, false));
   window.addEventListener('blur', () => (scoreboard.held = false));
+  let lastIt: number | null = null;
+  const toast = new Toast(document.getElementById('toast')!);
+  let blockedPickupId: number | null = null;
 
   // Handy for debugging from the browser console; stripped from production builds.
   if (import.meta.env.DEV) Object.assign(window, { game: session });
@@ -63,9 +81,13 @@ async function main(): Promise<void> {
     renderer.render(session.world, transforms, session.myPedId, frameDt, events);
     wasted.update(session, events);
     for (const event of events) if (event.type === 'death') killFeed.add(session, event);
+    const it = session.match?.mode === 'tag' ? session.world.itPedId : null;
+    if (it !== null && it !== lastIt) killFeed.addNewIt(session, it);
+    lastIt = it;
+    blockedPickupId = explainBlockedPickup(session, toast, blockedPickupId);
     scoreboard.update(session);
     const others = otherPlayers(session, transforms);
-    nameTags.update(nameTagsFor(others, renderer));
+    nameTags.update(nameTagsFor(others, renderer, session.world.itPedId));
     updateArrows(arrows, session, others, transforms, renderer);
 
     if (frameDt > 0) fps += (1 / frameDt - fps) * 0.05;
@@ -88,6 +110,19 @@ function startSession(params: URLSearchParams): Promise<GameSession> {
   });
 }
 
+/**
+ * Tells the player why walking over a crate does nothing (in tag, "it" can't take weapons). Shown
+ * once per crate you step on. Returns the crate you're standing on, if any.
+ */
+function explainBlockedPickup(session: GameSession, toast: Toast, lastPickupId: number | null): number | null {
+  const { world } = session;
+  const me = session.myPedId === null ? undefined : world.peds.get(session.myPedId);
+  if (!me || me.carId !== null || isDead(me) || canPickUpWeapons(world, me)) return null;
+  const pickup = [...world.pickups.values()].find((p) => isPickupAvailable(world, p) && Math.hypot(p.x - me.x, p.y - me.y) <= PICKUP_RADIUS);
+  if (pickup && pickup.id !== lastPickupId) toast.show("You're IT: no weapons for you!");
+  return pickup?.id ?? null;
+}
+
 interface OtherPlayer {
   player: PlayerInfo;
   ped: Ped;
@@ -105,16 +140,20 @@ function otherPlayers(session: GameSession, transforms: TransformSnapshot): Othe
   return result;
 }
 
-function nameTagsFor(others: readonly OtherPlayer[], renderer: GameRenderer): NameTag[] {
+function nameTagsFor(others: readonly OtherPlayer[], renderer: GameRenderer, itPedId: number | null): NameTag[] {
   const tags: NameTag[] = [];
   for (const { player, position } of others) {
     const screen = renderer.projectToScreen(position.x, position.y, NAME_TAG_HEIGHT);
-    if (screen) tags.push({ id: player.pedId, text: player.name, ...screen });
+    const text = player.pedId === itPedId ? `IT · ${player.name}` : player.name;
+    if (screen) tags.push({ id: player.pedId, text, ...screen });
   }
   return tags;
 }
 
-/** GTA2-style arrows circling our character, pointing at every other living player. */
+/**
+ * GTA2-style arrows circling our character, pointing at every other living player. In tag, the
+ * hunters only get an arrow to "it", and "it" gets none.
+ */
 function updateArrows(
   arrows: PlayerArrows,
   session: GameSession,
@@ -128,9 +167,11 @@ function updateArrows(
   const { width, height } = renderer.viewportSize();
   const origin = renderer.projectToScreen(myPosition.x, myPosition.y, 0) ?? { x: width / 2, y: height / 2 };
 
+  const itPedId = session.match?.mode === 'tag' ? session.world.itPedId : null;
   const list: PlayerArrow[] = [];
   for (const { player, ped, position } of others) {
     if (isDead(ped)) continue;
+    if (itPedId !== null && (me.id === itPedId || ped.id !== itPedId)) continue;
     list.push({
       id: player.pedId,
       name: player.name,
@@ -151,7 +192,8 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
   const health = ped ? Math.ceil(ped.health) : 0;
   const bars = Math.ceil((health / PED_MAX_HEALTH) * 10);
   const healthLine = `Health: ${'█'.repeat(bars)}${'░'.repeat(10 - bars)} ${health}`;
-  const weapon = ped?.weapon ? `Weapon: ${WEAPONS[ped.weapon].name} · ${ped.ammo[ped.weapon] ?? 0}` : 'Unarmed (walk over a spinning crate)';
+  const unarmed = ped && !canPickUpWeapons(world, ped) ? "Unarmed (you're IT: no weapons)" : 'Unarmed (walk over a spinning crate)';
+  const weapon = ped?.weapon ? `Weapon: ${WEAPONS[ped.weapon].name} · ${ped.ammo[ped.weapon] ?? 0}` : unarmed;
   const me = session.players.find((p) => p.pedId === session.myPedId);
   const others = session.players.filter((p) => p !== me).map((p) => p.name);
   return [

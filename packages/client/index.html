@@ -79,10 +79,18 @@
         white-space: pre;
       }
 
-      #match-status {
+      /* Top-right column: match status, with the kill feed below it however tall the status is. */
+      #corner {
         position: fixed;
         top: 12px;
         right: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+        pointer-events: none;
+      }
+      #match-status {
         padding: 8px 12px;
         border-radius: 6px;
         background: rgba(0, 0, 0, 0.5);
@@ -96,9 +104,6 @@
         display: none;
       }
       #killfeed {
-        position: fixed;
-        top: 104px;
-        right: 12px;
         display: flex;
         flex-direction: column;
         align-items: flex-end;
@@ -181,6 +186,26 @@
       }
       #scoreboard p:empty {
         display: none;
+      }
+
+      #toast {
+        position: fixed;
+        left: 50%;
+        bottom: 15%;
+        transform: translateX(-50%);
+        max-width: calc(100vw - 32px);
+        padding: 8px 14px;
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.7);
+        color: var(--accent);
+        font-size: 15px;
+        text-align: center;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      #toast.visible {
+        opacity: 1;
       }
 
       #wasted {
@@ -297,9 +322,12 @@
     <div id="tags"></div>
     <div id="arrows"></div>
     <div id="hud"></div>
-    <div id="match-status" hidden></div>
-    <div id="killfeed"></div>
+    <div id="corner">
+      <div id="match-status" hidden></div>
+      <div id="killfeed"></div>
+    </div>
     <div id="scoreboard" hidden></div>
+    <div id="toast" role="status"></div>
     <div id="wasted" hidden>
       <div class="title">WASTED</div>
       <div class="detail" id="wasted-cause"></div>

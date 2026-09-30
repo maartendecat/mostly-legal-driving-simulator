@@ -17,7 +17,7 @@ export class LocalSession implements GameSession {
   ) {
     this.world = createWorld(generateCity(seed), seed);
     this.myPedId = spawnPed(this.world).id;
-    this.players = [{ pedId: this.myPedId, name: 'You', frags: 0, deaths: 0 }];
+    this.players = [{ pedId: this.myPedId, name: 'You', frags: 0, deaths: 0, points: 0, itTicks: 0 }];
     this.previous = captureTransforms(this.world);
   }
 

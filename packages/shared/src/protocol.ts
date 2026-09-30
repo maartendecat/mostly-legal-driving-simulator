@@ -1,6 +1,6 @@
 import type { GameEvent, Pickup, Projectile } from './combat';
 import type { PlayerInput } from './input';
-import type { MatchState } from './match';
+import type { MatchState, PlayerScore } from './match';
 import type { Car, Ped, World } from './world';
 
 /**
@@ -14,11 +14,9 @@ export const SNAPSHOT_EVERY_TICKS = 2;
 
 export const MAX_NAME_LENGTH = 16;
 
-export interface PlayerInfo {
+export interface PlayerInfo extends PlayerScore {
   pedId: number;
   name: string;
-  frags: number;
-  deaths: number;
 }
 
 export interface Snapshot {
@@ -27,6 +25,7 @@ export interface Snapshot {
   nextId: number;
   /** So the client predicts the same "random" choices (like respawn points) as the server. */
   rngState: number;
+  itPedId: number | null;
   cars: Car[];
   peds: Ped[];
   projectiles: Projectile[];
@@ -63,6 +62,7 @@ export function captureSnapshot(world: World): Snapshot {
     tick: world.tick,
     nextId: world.nextId,
     rngState: world.rngState,
+    itPedId: world.itPedId,
     cars: [...world.cars.values()],
     peds: [...world.peds.values()],
     projectiles: [...world.projectiles.values()],
@@ -75,6 +75,7 @@ export function applySnapshot(world: World, snapshot: Snapshot): void {
   world.tick = snapshot.tick;
   world.nextId = snapshot.nextId;
   world.rngState = snapshot.rngState;
+  world.itPedId = snapshot.itPedId;
   world.cars = new Map(snapshot.cars.map((car) => [car.id, car]));
   world.peds = new Map(snapshot.peds.map((ped) => [ped.id, ped]));
   world.projectiles = new Map(snapshot.projectiles.map((p) => [p.id, p]));

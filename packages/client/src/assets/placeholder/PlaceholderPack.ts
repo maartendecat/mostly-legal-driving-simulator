@@ -12,7 +12,7 @@ import {
   type Projectile,
   type WeaponId,
 } from '@game/shared';
-import type { AssetPack, EffectView, EntityView } from '../AssetPack';
+import type { AssetPack, EffectView, EntityView, PickupViewState } from '../AssetPack';
 
 const GROUND_COLORS: Record<number, number> = {
   [Block.Road]: 0x3a3a3f,
@@ -228,7 +228,7 @@ export class PlaceholderPack implements AssetPack {
     return { object: group, dispose: () => {} };
   }
 
-  createPickupView(pickup: Pickup): EntityView<Pickup> {
+  createPickupView(pickup: Pickup): EntityView<PickupViewState> {
     const group = new THREE.Group();
     const color = WEAPON_COLORS[pickup.weapon];
     const glow = new THREE.Mesh(
@@ -237,11 +237,21 @@ export class PlaceholderPack implements AssetPack {
     );
     glow.position.z = 0.02;
     const crate = box(0.3, 0.3, 0.3, color);
+    const crateMaterial = crate.material as THREE.MeshLambertMaterial;
+    crateMaterial.transparent = true;
     group.add(glow, crate);
     let time = Math.random() * 10;
     return {
       object: group,
-      update: (dt) => {
+      update: (dt, { usable }) => {
+        // Disabled (e.g. you're "it" in tag): grey, see-through, resting on the ground, no glow.
+        glow.visible = usable;
+        crateMaterial.color.setHex(usable ? color : 0x6b6b6b);
+        crateMaterial.opacity = usable ? 1 : 0.45;
+        if (!usable) {
+          crate.position.z = 0.15;
+          return;
+        }
         time += dt;
         crate.rotation.z = time * 2;
         crate.position.z = 0.35 + Math.sin(time * 3) * 0.06;
@@ -251,7 +261,8 @@ export class PlaceholderPack implements AssetPack {
   }
 
   createEffectView(event: GameEvent): EffectView | null {
-    if (event.type === 'death') return null; // the body and blood pool are drawn by the ped view
+    // Deaths are shown by the ped view (body, blood); other events have no effect of their own.
+    if (event.type !== 'impact' && event.type !== 'explosion') return null;
     const explosion = event.type === 'explosion';
     const duration = explosion ? 0.6 : 0.15;
     const startSize = explosion ? 0.3 : 0.08;

@@ -36,7 +36,9 @@ export type GameEvent =
   | { type: 'impact'; tick: number; ownerId: number; x: number; y: number }
   | { type: 'explosion'; tick: number; ownerId: number; x: number; y: number; radius: number }
   /** `killerId` is null for accidents; `ownerId` is the killer, or the victim if there is none. */
-  | { type: 'death'; tick: number; ownerId: number; pedId: number; killerId: number | null; cause: DamageCause; x: number; y: number };
+  | { type: 'death'; tick: number; ownerId: number; pedId: number; killerId: number | null; cause: DamageCause; x: number; y: number }
+  /** A car blew up; `attackerId` is who gets the credit (null for accidents). */
+  | { type: 'carDestroyed'; tick: number; ownerId: number; carId: number; attackerId: number | null; x: number; y: number };
 
 export const PICKUP_RADIUS = 0.45;
 const PICKUP_RESPAWN_TICKS = secondsToTicks(10);
@@ -150,12 +152,18 @@ function detonate(world: World, projectile: Projectile, hit: Hit | null): void {
   else if (hit?.type === 'car') damageCar(world, hit.car, weapon.damage * BULLET_CAR_DAMAGE, ownerId);
 }
 
+/** Whether this ped is allowed to take weapons from pickups at all. Tag: "it" can't. */
+export function canPickUpWeapons(world: World, ped: Ped): boolean {
+  return ped.id !== world.itPedId;
+}
+
 export function collectPickups(world: World): void {
   for (const pickup of world.pickups.values()) {
     if (!isPickupAvailable(world, pickup)) continue;
     const weapon = WEAPONS[pickup.weapon];
     for (const ped of world.peds.values()) {
       if (ped.carId !== null || isDead(ped) || Math.hypot(ped.x - pickup.x, ped.y - pickup.y) > PICKUP_RADIUS) continue;
+      if (!canPickUpWeapons(world, ped)) continue;
       const ammo = ped.ammo[pickup.weapon] ?? 0;
       if (ammo >= weapon.maxAmmo) continue;
       ped.ammo[pickup.weapon] = Math.min(ammo + weapon.pickupAmmo, weapon.maxAmmo);

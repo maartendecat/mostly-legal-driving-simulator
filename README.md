@@ -28,11 +28,25 @@ You have 100 health. Bullets, rocket blasts and being run over hurt; at zero you
 respawn 3 seconds later, unarmed. Cars take damage from gunfire and hard crashes, start smoking,
 then burn and explode (get out in time!) and leave a wreck that's replaced after 30 seconds.
 
-Online games are **Frag** matches, as in GTA2: +1 for every kill, −1 for killing yourself. First to
-10 frags wins, or whoever leads after 10 minutes; then there's a 10-second break showing the scores
-and a new match starts. Hold Tab for the scoreboard. Change the limits when starting the server:
-`FRAG_LIMIT=20 TIME_LIMIT=15 npm run server` (0 means no limit). Players who are off screen show
-up as arrows in their colour at the edge of the screen, with their name and distance.
+Online games are matches in one of GTA2's three modes:
+
+- **Frag**: +1 for every kill, −1 for killing yourself. First to 10 frags wins.
+- **Points**: 1,000 points per kill, −500 for killing yourself, 100 for every car you wreck.
+  First to 10,000 wins.
+- **Tag**: one player is "it" and can't pick up weapons, can't see arrows, and their car takes
+  double damage. Kill "it" to become "it". Time as "it" (alive) counts: first to 2 minutes wins.
+
+If nobody reaches the limit, whoever leads after 10 minutes wins. Then there's a 10-second break
+showing the scores and a new match starts. Hold Tab for the scoreboard. Other players show up as
+arrows in their colour circling your character (in Tag, only "it" gets an arrow). Configure the
+server with environment variables:
+
+```bash
+MODE=points npm run server          # frag (default), points, tag, or rotate (all three in turn)
+MODE=tag SCORE_LIMIT=90 TIME_LIMIT=5 npm run server   # 90 s as "it" to win; 5-minute matches
+```
+
+`SCORE_LIMIT` is in frags, points or seconds as "it"; 0 means no limit, as does `TIME_LIMIT=0`.
 Add `?seed=42` to the URL for a different city.
 
 ## Layout
@@ -79,7 +93,7 @@ maps and name. `.sty` and `.gmp` files are gitignored.
    snapshot interpolation for other players, join screen with player names
 3. Combat: ✅ 3a weapons (pistol, machine gun, rocket launcher) and pickups; ✅ 3b health,
    damage, death and respawning, exploding cars; ✅ 3c Frag mode with kill feed and
-   scoreboard; ✅ 3d arrows to off-screen players; next Points and Tag modes (3e)
+   scoreboard; ✅ 3d player arrows; ✅ 3e Points and Tag modes
 4. Lobbies and matchmaking; map editor
 5. Open asset pack, then the classic pack importer
 6. Netcode tuning: WebRTC/WebTransport, delta compression, lag compensation

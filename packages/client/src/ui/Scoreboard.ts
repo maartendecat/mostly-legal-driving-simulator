@@ -1,10 +1,17 @@
-import { TICK_RATE, type PlayerInfo } from '@game/shared';
+import { TICK_RATE, scoreFor, type MatchMode, type PlayerInfo } from '@game/shared';
 import type { GameSession } from '../session/GameSession';
 
-/** Best first: most frags, then fewest deaths, then by name so the order is stable. */
-export function rankPlayers(players: readonly PlayerInfo[]): PlayerInfo[] {
-  return [...players].sort((a, b) => b.frags - a.frags || a.deaths - b.deaths || a.name.localeCompare(b.name));
+/** Best first: highest score for the mode, then fewest deaths, then by name so the order is stable. */
+export function rankPlayers(players: readonly PlayerInfo[], mode: MatchMode): PlayerInfo[] {
+  return [...players].sort((a, b) => scoreFor(mode, b) - scoreFor(mode, a) || a.deaths - b.deaths || a.name.localeCompare(b.name));
 }
+
+/** How each mode names and shows its score, and which second column the scoreboard shows. */
+const MODES: Record<MatchMode, { title: string; score: string; format: (value: number) => string; limit: (limit: number) => string; extra: [string, (p: PlayerInfo) => number] }> = {
+  frag: { title: 'FRAG', score: 'Frags', format: String, limit: (l) => `first to ${l}`, extra: ['Deaths', (p) => p.deaths] },
+  points: { title: 'POINTS', score: 'Points', format: (v) => v.toLocaleString('en-US'), limit: (l) => `first to ${l.toLocaleString('en-US')}`, extra: ['Frags', (p) => p.frags] },
+  tag: { title: 'TAG', score: 'Time as it', format: formatTime, limit: (l) => `first to ${formatTime(l)} as it`, extra: ['Deaths', (p) => p.deaths] },
+};
 
 function formatTime(ticks: number): string {
   const seconds = Math.max(0, Math.ceil(ticks / TICK_RATE));
@@ -37,17 +44,23 @@ export class Scoreboard {
       this.board.hidden = true;
       return;
     }
-    const ranked = rankPlayers(session.players);
+    const mode = MODES[match.mode];
+    const score = (p: PlayerInfo) => mode.format(scoreFor(match.mode, p));
+    const ranked = rankPlayers(session.players, match.mode);
     const tick = session.world.tick;
     const myRank = ranked.findIndex((p) => p.pedId === session.myPedId) + 1;
     const me = ranked[myRank - 1];
     const leader = ranked[0];
+    const itId = session.world.itPedId;
 
-    const lines = [`FRAG${match.fragLimit > 0 ? ` · first to ${match.fragLimit}` : ''}`];
+    const lines = [`${mode.title}${match.scoreLimit > 0 ? ` · ${mode.limit(match.scoreLimit)}` : ''}`];
     if (match.phase === 'intermission') lines.push('Match over');
     else if (match.endsAt !== null) lines.push(`${formatTime(match.endsAt - tick)} left`);
-    if (me) lines.push(`You: ${me.frags} · ${ordinal(myRank)} of ${ranked.length}`);
-    if (leader && leader !== me) lines.push(`Leader: ${leader.name} ${leader.frags}`);
+    if (match.mode === 'tag' && itId !== null && match.phase === 'playing') {
+      lines.push(itId === session.myPedId ? "You're IT! Stay alive" : `IT: ${ranked.find((p) => p.pedId === itId)?.name ?? '?'}`);
+    }
+    if (me) lines.push(`You: ${score(me)} · ${ordinal(myRank)} of ${ranked.length}`);
+    if (leader && leader !== me) lines.push(`Leader: ${leader.name} ${score(leader)}`);
     this.status.textContent = lines.join('\n');
 
     const intermission = match.phase === 'intermission';
@@ -63,19 +76,23 @@ export class Scoreboard {
           ? `Draw: ${winners.join(', ')}`
           : 'Match over';
     const footer = intermission && match.restartAt !== null ? `Next match in ${formatTime(match.restartAt - tick)}` : '';
-    const key = JSON.stringify([title, footer, ranked, session.myPedId]);
+    const columns: [string, (p: PlayerInfo) => string][] = [
+      [mode.score, score],
+      [mode.extra[0], (p) => String(mode.extra[1](p))],
+    ];
+    const key = JSON.stringify([title, footer, ranked, session.myPedId, match.mode]);
     if (key !== this.lastRendered) {
       this.lastRendered = key;
-      this.render(title, footer, ranked, session.myPedId);
+      this.render(title, footer, ranked, session.myPedId, columns);
     }
   }
 
-  private render(title: string, footer: string, ranked: PlayerInfo[], myPedId: number | null): void {
+  private render(title: string, footer: string, ranked: PlayerInfo[], myPedId: number | null, columns: [string, (p: PlayerInfo) => string][]): void {
     const heading = document.createElement('h2');
     heading.textContent = title;
     const table = document.createElement('table');
     const head = table.createTHead().insertRow();
-    for (const label of ['#', 'Player', 'Frags', 'Deaths']) {
+    for (const label of ['#', 'Player', ...columns.map(([name]) => name)]) {
       const th = document.createElement('th');
       th.textContent = label;
       head.append(th);
@@ -85,7 +102,7 @@ export class Scoreboard {
       const row = body.insertRow();
       if (player.pedId === myPedId) row.className = 'me';
       // Names are typed by other players, so they only ever go in as text.
-      for (const value of [String(i + 1), player.name, String(player.frags), String(player.deaths)]) row.insertCell().textContent = value;
+      for (const value of [String(i + 1), player.name, ...columns.map(([, cell]) => cell(player))]) row.insertCell().textContent = value;
     });
     const foot = document.createElement('p');
     foot.textContent = footer;
