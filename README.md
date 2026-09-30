@@ -156,7 +156,7 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 
 ### Later
 
-- Walking animation for people, like GTA2's
+- ✅ Walking animation for people, like GTA2's (feet stepping out, body swaying)
 - Jumping (GTA2's Space on foot)
 - A livelier city: traffic driving around and pedestrians walking the pavements
 - Points popping up where they're earned, like GTA2 (a car exploding, damage done, kills)

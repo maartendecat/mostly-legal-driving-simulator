@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Block, CAR_MODELS, type BlockMap, type Car, type CarModelId, type Ped, type Pickup, type WeaponId } from '@game/shared';
 import type { AssetPack, EntityView, PickupViewState } from '../AssetPack';
-import { BloodPool, CarDamageEffects, carDamage, hash } from '../common';
+import { BloodPool, CarDamageEffects, WalkAnimation, carDamage, hash } from '../common';
 import { PlaceholderPack, hasDash } from '../placeholder/PlaceholderPack';
 
 const BASE = `${import.meta.env.BASE_URL}assets/kenney/`;
@@ -208,7 +208,12 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
     const character = CHARACTERS[ped.id % CHARACTERS.length]!;
     const material = spriteMaterial(this.texture(`people/${character}_stand`));
     const sprite = new THREE.Mesh(this.spriteGeometry, material);
-    sprite.position.z = 0.3;
+    // The upper body turns around the body's centre, not the sprite's (a gun makes those differ).
+    const body = new THREE.Group();
+    body.position.z = 0.3;
+    body.add(sprite);
+    const walk = new WalkAnimation();
+    walk.feet.position.z = 0.2;
 
     // A ring in the player's colour, so you can tell who's who (and match their arrow).
     const ring = new THREE.Mesh(
@@ -217,7 +222,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
     );
     ring.position.z = 0.02;
     const blood = new BloodPool();
-    group.add(blood.object, ring, sprite);
+    group.add(blood.object, ring, walk.feet, body);
 
     let pose: Pose | null = null;
     return {
@@ -234,8 +239,9 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
           // Sprites face +x with the gun sticking out in front: keep the body centred on the ped.
           sprite.position.x = (image.width / 2 - BODY_CENTER_PX) * SPRITE_SCALE;
         }
-        // Dead: lying on the side, darkened, in a pool of blood.
-        sprite.rotation.z = dead ? Math.PI / 2 : 0;
+        // Walking: feet step out under the body, which sways along. Dead: lying on the side, darkened.
+        const sway = walk.update(dt, group.position.x, group.position.y, group.rotation.z, !dead);
+        body.rotation.z = dead ? Math.PI / 2 : sway;
         material.color.setHex(dead ? 0x707070 : 0xffffff);
         ring.visible = !dead;
         blood.update(dt, dead);
@@ -246,6 +252,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
         (ring.material as THREE.Material).dispose();
         blood.object.geometry.dispose();
         (blood.object.material as THREE.Material).dispose();
+        walk.dispose();
       },
     };
   }

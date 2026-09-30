@@ -13,7 +13,7 @@ import {
   type WeaponId,
 } from '@game/shared';
 import type { AssetPack, EffectView, EntityView, PickupViewState } from '../AssetPack';
-import { BloodPool, CarDamageEffects, box, carDamage, disposeObject, hash } from '../common';
+import { BloodPool, CarDamageEffects, WalkAnimation, box, carDamage, disposeObject, hash } from '../common';
 
 const GROUND_COLORS: Record<number, number> = {
   [Block.Road]: 0x3a3a3f,
@@ -179,13 +179,16 @@ export class PlaceholderPack implements AssetPack {
     figure.add(nose);
 
     const blood = new BloodPool();
-    group.add(blood.object);
+    const walk = new WalkAnimation();
+    walk.feet.position.z = 0.02;
+    group.add(blood.object, walk.feet);
 
     return {
       object: group,
       update: (dt, state) => {
         const dead = state.respawnAt !== null;
-        // Tip over backwards and lie flat on the ground.
+        // Feet step out while walking, and the body sways along. Dead: flat on the ground.
+        figure.rotation.z = walk.update(dt, group.position.x, group.position.y, group.rotation.z, !dead);
         figure.rotation.y = dead ? -Math.PI / 2 : 0;
         figure.position.set(dead ? -0.05 : 0, 0, dead ? PED_RADIUS : 0);
         blood.update(dt, dead);
