@@ -112,7 +112,8 @@ export function updateLifecycle(world: World): void {
   }
 }
 
-function respawnPed(world: World, ped: Ped): void {
+/** Puts a ped back at a random spawn point with full health. */
+export function respawnPed(world: World, ped: Ped): void {
   const spawn = world.map.pedSpawns.length > 0 ? randomPick(world, world.map.pedSpawns) : { x: world.map.width / 2, y: world.map.height / 2 };
   Object.assign(ped, { x: spawn.x, y: spawn.y, health: PED_MAX_HEALTH, respawnAt: null, carId: null });
 }

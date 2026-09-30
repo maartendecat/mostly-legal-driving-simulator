@@ -1,5 +1,6 @@
 import type { GameEvent, Pickup, Projectile } from './combat';
 import type { PlayerInput } from './input';
+import type { MatchState } from './match';
 import type { Car, Ped, World } from './world';
 
 /**
@@ -16,6 +17,8 @@ export const MAX_NAME_LENGTH = 16;
 export interface PlayerInfo {
   pedId: number;
   name: string;
+  frags: number;
+  deaths: number;
 }
 
 export interface Snapshot {
@@ -52,7 +55,7 @@ export type ServerMessage =
    * `acks` maps ped id to the `seq` of that player's last input included in this snapshot.
    * `events` are all events since the previous snapshot.
    */
-  | ({ type: 'snapshot'; acks: Record<number, number>; players: PlayerInfo[]; events: GameEvent[] } & Snapshot)
+  | ({ type: 'snapshot'; acks: Record<number, number>; players: PlayerInfo[]; match: MatchState; events: GameEvent[] } & Snapshot)
   | { type: 'pong'; time: number };
 
 export function captureSnapshot(world: World): Snapshot {

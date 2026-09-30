@@ -53,6 +53,110 @@
         white-space: pre;
       }
 
+      #match-status {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.5);
+        font-size: 13px;
+        line-height: 1.5;
+        text-align: right;
+        white-space: pre;
+        pointer-events: none;
+      }
+      #match-status[hidden] {
+        display: none;
+      }
+      #killfeed {
+        position: fixed;
+        top: 104px;
+        right: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+        pointer-events: none;
+      }
+      #killfeed .kill {
+        padding: 2px 8px;
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.55);
+        font-size: 13px;
+        white-space: nowrap;
+        animation: kill-fade 6s forwards;
+      }
+      #killfeed .kill.mine {
+        outline: 1px solid var(--accent);
+      }
+      #killfeed .name.me {
+        color: var(--accent);
+      }
+      #killfeed .cause {
+        color: var(--muted);
+      }
+      @keyframes kill-fade {
+        0%,
+        80% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+      #scoreboard {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        min-width: min(360px, calc(100vw - 32px));
+        max-width: calc(100vw - 32px);
+        padding: 20px 24px;
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        pointer-events: none;
+      }
+      #scoreboard[hidden] {
+        display: none;
+      }
+      #scoreboard h2 {
+        margin: 0 0 12px;
+        color: var(--accent);
+        text-align: center;
+      }
+      #scoreboard table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      #scoreboard th {
+        color: var(--muted);
+        font-weight: normal;
+        text-align: left;
+        border-bottom: 1px solid #44444c;
+      }
+      #scoreboard td,
+      #scoreboard th {
+        padding: 4px 8px;
+      }
+      #scoreboard td:nth-child(n + 3),
+      #scoreboard th:nth-child(n + 3) {
+        text-align: right;
+      }
+      #scoreboard tr.me td {
+        color: var(--accent);
+      }
+      #scoreboard p {
+        margin: 12px 0 0;
+        text-align: center;
+        color: var(--muted);
+      }
+      #scoreboard p:empty {
+        display: none;
+      }
+
       #wasted {
         position: fixed;
         inset: 0;
@@ -166,6 +270,9 @@
     <div id="game"></div>
     <div id="tags"></div>
     <div id="hud"></div>
+    <div id="match-status" hidden></div>
+    <div id="killfeed"></div>
+    <div id="scoreboard" hidden></div>
     <div id="wasted" hidden>
       <div class="title">WASTED</div>
       <div class="detail" id="wasted-cause"></div>

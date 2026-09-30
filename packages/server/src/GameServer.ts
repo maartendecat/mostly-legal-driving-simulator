@@ -1,5 +1,7 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import {
+  DEFAULT_MATCH_SETTINGS,
+  FragMatch,
   MAX_NAME_LENGTH,
   MAX_QUEUED_INPUTS,
   NO_INPUT,
@@ -14,6 +16,7 @@ import {
   spawnPed,
   stepWorld,
   type GameEvent,
+  type MatchSettings,
   type PlayerInfo,
   type PlayerInput,
   type ServerMessage,
@@ -23,6 +26,7 @@ import {
 export interface GameServerOptions {
   port: number;
   seed: number;
+  match?: Partial<MatchSettings>;
 }
 
 interface Player {
@@ -43,6 +47,7 @@ interface Player {
  */
 export class GameServer {
   readonly world: World;
+  readonly match: FragMatch;
   private readonly wss: WebSocketServer;
   /** Players who have joined. Connections that haven't sent `join` yet only get pongs. */
   private readonly players = new Set<Player>();
@@ -55,6 +60,7 @@ export class GameServer {
 
   constructor(private readonly options: GameServerOptions) {
     this.world = createWorld(generateCity(options.seed), options.seed);
+    this.match = new FragMatch({ ...DEFAULT_MATCH_SETTINGS, ...options.match }, this.world.tick);
     this.wss = new WebSocketServer({ port: options.port, maxPayload: 1024 });
     this.wss.on('connection', (socket) => this.onConnection(socket));
     this.timer = setInterval(() => this.update(), 1000 / TICK_RATE);
@@ -104,6 +110,7 @@ export class GameServer {
     socket.on('close', () => {
       if (!player) return;
       this.players.delete(player);
+      this.match.removePlayer(player.pedId);
       removePed(this.world, player.pedId);
     });
   }
@@ -120,6 +127,7 @@ export class GameServer {
       ack: 0,
     };
     this.players.add(player);
+    this.match.addPlayer(ped.id);
     send(socket, {
       type: 'welcome',
       pedId: ped.id,
@@ -154,15 +162,18 @@ export class GameServer {
 
   private tick(): void {
     const inputs = new Map<number, PlayerInput>();
+    // Between matches everyone is frozen; inputs are still consumed (and acked) as usual.
+    const frozen = this.match.state.phase === 'intermission';
     for (const player of this.players) {
       const next = player.queue.shift();
       if (next) {
         player.input = next.input;
         player.ack = next.seq;
       }
-      inputs.set(player.pedId, player.input);
+      inputs.set(player.pedId, frozen ? NO_INPUT : player.input);
     }
     stepWorld(this.world, inputs);
+    this.match.update(this.world);
     this.pendingEvents.push(...this.world.events);
 
     if (this.world.tick % SNAPSHOT_EVERY_TICKS === 0 && this.players.size > 0) {
@@ -179,9 +190,10 @@ export class GameServer {
     const players: PlayerInfo[] = [];
     for (const player of this.players) {
       acks[player.pedId] = player.ack;
-      players.push({ pedId: player.pedId, name: player.name });
+      const score = this.match.scores.get(player.pedId) ?? { frags: 0, deaths: 0 };
+      players.push({ pedId: player.pedId, name: player.name, ...score });
     }
-    return { type: 'snapshot', ...captureSnapshot(this.world), acks, players, events };
+    return { type: 'snapshot', ...captureSnapshot(this.world), acks, players, match: this.match.state, events };
   }
 }
 

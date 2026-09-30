@@ -144,3 +144,36 @@ test('snapshots carry every event since the previous snapshot', async () => {
   assert.equal(impacts.length, 10, 'one impact per bullet, none lost between snapshots');
   client.close();
 });
+
+test('a frag match: kills are scored, the match ends at the limit, players freeze, then it starts over', async () => {
+  const quick = new GameServer({ port: 0, seed: 1234, match: { fragLimit: 1, intermissionTicks: 30 } });
+  await quick.listening();
+  const a = new TestClient(quick.port, 'Alice');
+  const b = new TestClient(quick.port, 'Bob');
+  const { pedId: alice } = await a.next('welcome');
+  const { pedId: bob } = await b.next('welcome');
+
+  // Alice gets a pistol and Bob stands three blocks in front of her.
+  quick.world.cars.clear();
+  Object.assign(quick.world.peds.get(alice)!, { x: 2.5, y: 30.5, heading: Math.PI / 2, weapon: 'pistol', ammo: { pistol: 10 } });
+  Object.assign(quick.world.peds.get(bob)!, { x: 2.5, y: 33.5 });
+  for (let seq = 1; seq <= 90; seq++) a.send({ type: 'input', seq, input: { ...NO_INPUT, fire: true } });
+
+  const ended = await a.next('snapshot', (s) => s.match.phase === 'intermission', 3000);
+  const score = (s: typeof ended, id: number) => s.players.find((p) => p.pedId === id)!;
+  assert.deepEqual([score(ended, alice).frags, score(ended, bob).deaths], [1, 1]);
+  assert.deepEqual(ended.match.winnerIds, [alice]);
+
+  // Frozen: walking does nothing until the next match.
+  const before = ended.peds.find((p) => p.id === alice)!;
+  for (let seq = 91; seq <= 100; seq++) a.send({ type: 'input', seq, input: { ...NO_INPUT, up: true } });
+  const stillFrozen = await a.next('snapshot', (s) => s.acks[alice] === 100 && s.match.phase === 'intermission');
+  assert.equal(stillFrozen.peds.find((p) => p.id === alice)!.y, before.y);
+
+  const fresh = await a.next('snapshot', (s) => s.match.phase === 'playing' && s.tick > ended.tick, 3000);
+  assert.deepEqual([score(fresh, alice).frags, score(fresh, bob).deaths], [0, 0]);
+  assert.ok(fresh.peds.every((p) => p.respawnAt === null && p.weapon === null), 'everyone back, unarmed');
+  a.close();
+  b.close();
+  await quick.close();
+});

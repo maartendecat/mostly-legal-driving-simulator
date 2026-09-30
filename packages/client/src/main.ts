@@ -7,8 +7,11 @@ import type { TransformSnapshot } from './render/transforms';
 import type { GameSession } from './session/GameSession';
 import { LocalSession } from './session/LocalSession';
 import { NetworkSession } from './session/NetworkSession';
+import { describeOwnDeath } from './ui/deathText';
 import { showJoinScreen } from './ui/JoinScreen';
+import { KillFeed } from './ui/KillFeed';
 import { NameTags, type NameTag } from './ui/NameTags';
+import { Scoreboard } from './ui/Scoreboard';
 
 /** Height above the ground at which name tags float, in blocks. */
 const NAME_TAG_HEIGHT = 0.9;
@@ -31,6 +34,17 @@ async function main(): Promise<void> {
   const nameTags = new NameTags(document.getElementById('tags')!);
   const hud = document.getElementById('hud')!;
   const wasted = new WastedScreen();
+  const killFeed = new KillFeed(document.getElementById('killfeed')!);
+  const scoreboard = new Scoreboard(document.getElementById('match-status')!, document.getElementById('scoreboard')!);
+  // Hold Tab for the scoreboard (and keep Tab from moving focus around the page).
+  const toggleScoreboard = (event: KeyboardEvent, held: boolean) => {
+    if (event.code !== 'Tab') return;
+    event.preventDefault();
+    scoreboard.held = held;
+  };
+  window.addEventListener('keydown', (e) => toggleScoreboard(e, true));
+  window.addEventListener('keyup', (e) => toggleScoreboard(e, false));
+  window.addEventListener('blur', () => (scoreboard.held = false));
 
   // Handy for debugging from the browser console; stripped from production builds.
   if (import.meta.env.DEV) Object.assign(window, { game: session });
@@ -46,6 +60,8 @@ async function main(): Promise<void> {
     const { transforms, events } = session.update(frameDt, () => keyboard.sample());
     renderer.render(session.world, transforms, session.myPedId, frameDt, events);
     wasted.update(session, events);
+    for (const event of events) if (event.type === 'death') killFeed.add(session, event);
+    scoreboard.update(session);
     nameTags.update(nameTagsFor(session, transforms, renderer));
 
     if (frameDt > 0) fps += (1 / frameDt - fps) * 0.05;
@@ -103,6 +119,7 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
     'Space        handbrake',
     'J or Ctrl    fire',
     'Z / X        switch weapon',
+    session.match ? 'Tab          scores' : '',
     '',
     me && session instanceof NetworkSession ? `You are ${me.name}` : '',
     others.length > 0 ? `Also here: ${others.join(', ')}` : '',
@@ -122,7 +139,7 @@ class WastedScreen {
   update(session: GameSession, events: readonly GameEvent[]): void {
     const me = session.myPedId;
     for (const event of events) {
-      if (event.type === 'death' && event.pedId === me) this.cause.textContent = describeDeath(session, event);
+      if (event.type === 'death' && event.pedId === me) this.cause.textContent = describeOwnDeath(session, event);
     }
     const ped = me === null ? undefined : session.world.peds.get(me);
     const respawnAt = ped?.respawnAt ?? null;
@@ -132,18 +149,6 @@ class WastedScreen {
       this.countdown.textContent = `Back in ${seconds}...`;
     }
   }
-}
-
-function describeDeath(session: GameSession, death: Extract<GameEvent, { type: 'death' }>): string {
-  const name = (pedId: number | null) => session.players.find((p) => p.pedId === pedId)?.name ?? 'Someone';
-  const self = death.killerId === death.pedId;
-  if (death.cause === 'runOver') return death.killerId === null ? 'Hit by a runaway car' : `${name(death.killerId)} ran you over`;
-  if (death.cause === 'carExplosion') {
-    if (death.killerId === null) return 'Your ride went up in flames';
-    return self ? 'You blew yourself up' : `${name(death.killerId)} blew you up`;
-  }
-  if (self) return 'You blew yourself up';
-  return `${name(death.killerId)} got you with the ${WEAPONS[death.cause].name.toLowerCase()}`;
 }
 
 main().catch((error: unknown) => {

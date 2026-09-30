@@ -7,6 +7,7 @@ export class LocalSession implements GameSession {
   readonly world: World;
   readonly myPedId: number;
   readonly players: readonly PlayerInfo[];
+  readonly match = null;
   private previous: TransformSnapshot;
   private accumulator = 0;
 
@@ -16,7 +17,7 @@ export class LocalSession implements GameSession {
   ) {
     this.world = createWorld(generateCity(seed), seed);
     this.myPedId = spawnPed(this.world).id;
-    this.players = [{ pedId: this.myPedId, name: 'You' }];
+    this.players = [{ pedId: this.myPedId, name: 'You', frags: 0, deaths: 0 }];
     this.previous = captureTransforms(this.world);
   }
 

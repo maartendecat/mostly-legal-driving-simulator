@@ -3,6 +3,7 @@ export * from './damage';
 export * from './input';
 export * from './map';
 export * from './mapgen';
+export * from './match';
 export * from './math';
 export * from './protocol';
 export * from './time';

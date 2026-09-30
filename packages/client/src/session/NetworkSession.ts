@@ -1,5 +1,6 @@
 import {
   TICK_DT,
+  NO_INPUT,
   applySnapshot,
   cloneWorld,
   createWorld,
@@ -7,6 +8,7 @@ import {
   stepWorld,
   type ClientMessage,
   type GameEvent,
+  type MatchState,
   type PlayerInfo,
   type PlayerInput,
   type ServerMessage,
@@ -53,6 +55,7 @@ export class NetworkSession implements GameSession {
   private readonly snapshots: SnapshotBuffer;
   private accumulator = 0;
   private playerList: PlayerInfo[] = [];
+  private matchState: MatchState | null = null;
   /** Effects of our own shots: shown as soon as the server reports them. */
   private dueEvents: GameEvent[] = [];
   /** Everyone else's: shown when the (delayed) render time reaches them, to line up with what's drawn. */
@@ -127,6 +130,10 @@ export class NetworkSession implements GameSession {
     return this.playerList;
   }
 
+  get match(): MatchState | null {
+    return this.matchState;
+  }
+
   get status(): string {
     if (!this.connected) return 'Disconnected from server';
     const players = this.serverWorld.peds.size;
@@ -138,7 +145,9 @@ export class NetworkSession implements GameSession {
   update(frameDt: number, sampleInput: () => PlayerInput): FrameState {
     this.accumulator += frameDt;
     while (this.accumulator >= TICK_DT) {
-      const input = sampleInput();
+      // The server ignores input between matches; predict (and send) the same.
+      const sampled = sampleInput();
+      const input = this.matchState?.phase === 'intermission' ? NO_INPUT : sampled;
       const seq = this.nextSeq++;
       this.pending.push({ seq, input });
       this.send({ type: 'input', seq, input });
@@ -212,6 +221,7 @@ export class NetworkSession implements GameSession {
     applySnapshot(this.serverWorld, snapshot);
     this.snapshots.push(snapshot.tick, captureTransforms(this.serverWorld), performance.now());
     this.playerList = snapshot.players;
+    this.matchState = snapshot.match;
     for (const event of snapshot.events) (event.ownerId === this.myPedId ? this.dueEvents : this.scheduledEvents).push(event);
 
     // Reconcile: restart the prediction from the server's state and replay unacknowledged inputs.
