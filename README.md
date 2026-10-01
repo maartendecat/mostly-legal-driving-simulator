@@ -3,6 +3,9 @@
 A browser-based, online-multiplayer game in the spirit of GTA2's multiplayer: top-down city, cars,
 guns, Frag/Points/Tag modes, and arrows pointing at the other players.
 
+How it works and why (architecture, rules and numbers, networking, traffic, decisions):
+[docs/DESIGN.md](docs/DESIGN.md).
+
 ## Getting started
 
 Requires Node.js 20+.
@@ -114,8 +117,9 @@ packages/
             Runs identically on the server (authoritative) and in the browser (prediction).
   client/   Browser client: Vite + Three.js renderer, input, asset packs.
   server/   Node.js authoritative server (WebSockets): a lobby plus any number of game rooms.
-            Clients send only their input; each room runs its world and broadcasts snapshots
-            30 times per second.
+            Clients send only their input; each room runs its world and sends every player
+            what changed around them, 30 times per second.
+docs/       DESIGN.md: the design in detail
 ```
 
 Online, the client predicts its own movement: it applies each input locally straight away and sends
@@ -163,7 +167,6 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 ### Later
 
 - ✅ Walking animation for people, like GTA2's (feet stepping out, body swaying)
-- Jumping (GTA2's Space on foot)
 - A livelier city: ✅ traffic; still to do: pedestrians walking the pavements (and traffic drivers
   that step out when you take their car)
 - Points popping up where they're earned, like GTA2 (a car exploding, damage done, kills)

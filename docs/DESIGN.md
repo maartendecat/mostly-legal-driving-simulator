@@ -1,0 +1,404 @@
+# Mostly Legal Driving Simulator: design
+
+How the game works and why it's built this way. The [README](../README.md) covers playing, running
+and hosting; this document covers the design: architecture, rules and numbers, networking, traffic,
+and the decisions behind them (including what we chose *not* to do).
+
+Numbers here are the values in the code at the time of writing. When you change a tuning constant,
+update the table that mentions it.
+
+---
+
+## 1. Goals and principles
+
+- **GTA2's multiplayer, online, in a browser.** Top-down city, cars, guns, Frag/Points/Tag, the
+  arrows pointing at other players. No install.
+- **The server is the only truth.** Clients send which keys are down, never where they are. That
+  keeps cheating hard and every player's game consistent.
+- **One simulation, shared.** The game rules are a plain TypeScript package (`@game/shared`) with no
+  rendering or networking. The server runs it for real; the browser runs the same code to predict
+  its own player. If they ever disagree, the server wins and the browser corrects itself.
+- **Deterministic.** Given the same state and inputs, a step always produces the same result
+  (seeded random numbers, no `Math.random` in the simulation, deterministic weapon spread). That's
+  what makes prediction and replay work, and it's covered by tests.
+- **Looks are swappable.** All graphics go through an `AssetPack` interface; gameplay data never
+  lives in a pack.
+- **No original GTA2 files**, ever, in the repo or on a server (see [Legal](#legal)).
+
+## 2. Architecture
+
+```
+packages/
+  shared/   the game: map + city generator, simulation, rules, traffic, protocol, delta encoding
+  server/   Node.js: HTTP + WebSocket on one port, lobby, rooms, interest management
+  client/   browser: Vite + Three.js, sessions (offline/online), prediction, rendering, UI, assets
+docs/       this document
+```
+
+```mermaid
+flowchart LR
+  subgraph Browser
+    K[Keyboard] --> NS[NetworkSession]
+    NS -->|predicts with| SIM1[shared simulation]
+    NS --> R[GameRenderer + AssetPack]
+    NS --> UI[HUD, arrows, kill feed, scoreboard]
+  end
+  subgraph Server
+    GS[GameServer: HTTP, lobby, rooms] --> ROOM[GameRoom]
+    ROOM -->|runs| SIM2[shared simulation]
+    ROOM --> M[Match: frag/points/tag]
+  end
+  NS -- "inputs (seq-numbered)" --> GS
+  GS -- "snapshot, then deltas (30/s, nearby only)" --> NS
+```
+
+- **Fixed tick:** 60 simulation ticks per second everywhere (`TICK_RATE`). The browser renders at
+  whatever frame rate it gets and blends between ticks.
+- **Offline play** (`LocalSession`) runs the same simulation locally with no server. Same game, no
+  match rules.
+
+## 3. World model
+
+- **Units:** one block = one map cell = 1 unit. **+x is east, +y is north, +z is up.** Headings are
+  radians, 0 = east, counter-clockwise positive.
+- **Entities** (all plain, serializable data in `World`):
+  - `Ped`: position, heading, health, current weapon and ammo, `carId` when driving, `respawnAt`
+    when dead, input edge-detection flags.
+  - `Car`: model, position, heading, velocity, health, `driverId`, burning/wreck state,
+    `lastAttackerId` (for kill credit), `traffic` (self-driving state) or null.
+  - `Projectile`: bullet or rocket in flight. `Pickup`: weapon crate with a respawn time.
+- **Events** (`GameEvent`): impact, explosion, death, carDestroyed. Produced by a tick, used for
+  effects, the kill feed and scoring; they don't change the world themselves.
+- **Ids** come from one counter (`nextId`) shared by all entity types.
+- **Randomness:** a mulberry32 generator whose state is part of the world (`rngState`), so it's
+  copied, sent in snapshots and replayed exactly.
+
+## 4. The map and the generated city
+
+A map is a grid of cells (`BlockMap`):
+
+| Field | Meaning |
+|---|---|
+| `kinds` | road, pavement, grass, building, water. Buildings and water are solid. Outside the map counts as building. |
+| `levels` | building height in storeys (1 storey = 1 unit) |
+| `variants` | free per-cell style data for asset packs (building colour, road centre lines) |
+| `lanes` | traffic lanes: a bit per driving direction, plus an intersection bit |
+| spawns | player spawn points (24), parked cars (28), weapon pickups (16) |
+
+**The generated city** (`generateCity(seed)`) is a 6×6 grid of city blocks, 77×77 cells:
+- Roads every 12 cells, **3 cells wide**: an outer lane each way plus an empty middle row (used for
+  overtaking). Intersections where roads cross. A ring of pavement around every block.
+- Each block: 15% park (grass), 10% plaza (pavement), otherwise split into four buildings of 1–5
+  storeys (some become courtyards). A 6-storey wall around the city.
+- **Right-hand traffic**: eastbound lanes on the south row of a road, northbound on the east column,
+  and so on.
+- **Parked cars stand on the pavement along the right-hand kerb**, facing the traffic direction (not
+  in the lanes: that jammed traffic, see [§9](#9-traffic)).
+- **Pickups**: pistol 3 in 6, machine gun 2 in 6, rocket launcher 1 in 6, spread over pavements.
+- The same seed always gives the same city, so the server only sends the seed, not the map.
+
+## 5. One simulation tick
+
+`stepWorld(world, inputs)` in this order:
+
+1. **Peds:** edge-detect Enter and weapon switching; skip the dead; enter/exit cars; walk; switch
+   weapons and fire.
+2. **Cars:** each gets controls from its driver's input, from its traffic driver, or none; then
+   physics and wall collisions.
+3. **Car-to-car collisions.**
+4. **Peds in cars** follow their car; **peds on foot** are pushed out of cars (and run over if the
+   car is fast).
+5. **Pickups, projectiles, lifecycle** (respawns, burning cars exploding, wrecks replaced),
+   **traffic upkeep**.
+
+On the server, the `Match` then scores the tick's events (see [§8](#8-game-modes-and-matches)).
+
+## 6. Movement and cars
+
+**People:** GTA2 "tank" controls: left/right turn (4.5 rad/s), up walks 3 blocks/s, down backs up
+at 1.8. Radius 0.18. Enter a car within 0.7 blocks of its edge; get out at up to 4 blocks/s, on the
+driver's side if free, else the other.
+
+**Car physics** (arcade, not realistic): velocity is split into forward and sideways parts. Throttle
+and brake change the forward part; **grip** bleeds off the sideways part, much more slowly with the
+handbrake on, which makes drifting. Steering is proportional to speed (full above 2.5 blocks/s,
+reversed when reversing). Walls: the car's outline is sampled at 8 points; movement is resolved per
+axis with a small bounce. Cars hit each other as two circles each (front and back).
+
+| Car | Length × width | Top speed | Accel | Turn rate | Grip | Handbrake grip | Health |
+|---|---|---|---|---|---|---|---|
+| Compact | 1.0 × 0.5 | 11 | 9 | 3.2 | 8 | 1.2 | 80 |
+| Sedan | 1.15 × 0.55 | 13 | 8 | 2.8 | 7 | 1.0 | 100 |
+| Sports car | 1.1 × 0.55 | 18 | 13 | 3.0 | 9 | 1.4 | 90 |
+| Truck | 1.6 × 0.65 | 9 | 5 | 2.0 | 10 | 2.0 | 180 |
+
+(Speeds in blocks/s; the HUD shows ×10 as "km/h".) Not yet modelled: mass (all cars are equally
+heavy in a crash), speed-dependent understeer. See roadmap item 4.
+
+## 7. Combat
+
+### Weapons
+
+| | Pistol | Machine gun | Rocket launcher |
+|---|---|---|---|
+| Damage | 25 | 12 | 150 at the centre of a 1.8 blast, falling off with distance |
+| Fire rate | 18 ticks (3.3/s) | 5 ticks (12/s) | 50 ticks (1.2/s) |
+| Projectile speed / range | 22 / 14 | 24 / 14 | 11 / 22 (explodes at the end) |
+| Spread | ±0.01 rad | ±0.07 rad | none |
+| Ammo per pickup / max | 30 / 99 | 80 / 300 | 5 / 20 |
+
+- **Projectiles are real objects**, like GTA2's visible bullets, moving in 3 substeps per tick so they
+  can't skip through thin things. They hit walls, cars and peds on foot (never their shooter).
+- **Spread is deterministic** (a hash of tick and shooter), so server and predicting client agree.
+- **Pickups** respawn 10 s after being taken; you can't take more than the maximum ammo. Players start
+  unarmed. Running out of ammo switches to the next weapon. No shooting from cars.
+
+### Damage, death and cars
+
+| What | Effect |
+|---|---|
+| People | 100 health. Pistol kills in 4 hits, machine gun in 9, a direct rocket hit outright. |
+| Bullets on cars | half damage |
+| Run over | (impact speed − 3) × 30, so fatal from about 6.3 blocks/s; credited to the driver |
+| Crashes | wall: (speed − 5) × 6; car-to-car: (closing speed − 5) × 5 to both, each credited to the other driver |
+| Dying | out of the car, weapons dropped, respawn after 3 s at a random spawn point |
+| Car at 0 health | burns for 3 s (time to get out), then explodes: driver dies, 150 damage in 2.5 blocks, a wreck that's replaced by a fresh car after 30 s |
+| Car destroyed by a rocket | explodes 0.3 s after the rocket: two separate booms feel stronger than one |
+| Car caught in another car's explosion | burns first, so chain reactions go off one after another |
+| Kill credit | whoever last damaged a car is credited for its explosion, even if its driver then crashes it |
+
+## 8. Game modes and matches
+
+| Mode | Scoring | Default limit |
+|---|---|---|
+| Frag | +1 per kill, −1 for killing yourself | first to 10 |
+| Points | +1,000 per kill, −500 for killing yourself, +100 per car you wreck | first to 10,000 |
+| Tag | time alive as "it" | first to 2:00 |
+
+- Accidents (no killer) only count as a death. If nobody reaches the limit, the leaders when time
+  runs out (default 10 minutes) win; ties have several winners.
+- **Tag:** a random player starts as "it"; whoever kills "it" becomes "it". "It" can't pick up weapons
+  (crates look disabled for them), sees no arrows, and their car takes double damage. Hunters see
+  only the arrow to "it". Accidents and suicides don't pass "it" on. "It" is stored in the world, not
+  just the match, because it changes the simulation (pickups, damage).
+- **Between matches:** 10 s intermission, everyone frozen (the client predicts no input too), then
+  scores reset and everyone respawns unarmed. `MODE=rotate` plays the three modes in turn.
+
+## 9. Traffic
+
+Cars that drive themselves (`traffic.ts`, part of the shared simulation).
+
+- **Same controls as a player:** a traffic driver produces the keys a player would press, so traffic
+  follows exactly the same physics.
+- **Route:** a short list of waypoints along its lane. At an intersection it picks straight on
+  (weight 2), left or right (weight 1 each), using route templates for "arriving eastbound" rotated
+  to the actual direction; exits that don't lead into a matching lane are skipped.
+- **Driving:** aims 1.1 blocks ahead along the route, cruises at 6 blocks/s, 3.2 in turns.
+- **Braking:** stops for any car or person in front, within 1.2 blocks plus a speed-based margin.
+- **Right of way:** checked from two cells before an intersection. Cars approaching or inside it take
+  turns; the one closest to the centre goes first (ties: lower id), so two cars never wait for each
+  other forever.
+- **Overtaking:** stopped for 0.75 s behind something that isn't moving and isn't traffic (a parked
+  car, a wreck, someone standing in the road), it swings into the empty middle row, passes, and pulls
+  back in. Not past an obstacle at an intersection; once past, it may carry on straight through an
+  intersection in the middle row.
+- **Getting unstuck:** blocked for 4 s anyway, or not moving for 1.5 s while wanting to, it backs up
+  for 0.8 s and finds its lane again. If there's no lane nearby, it drops out of traffic and stays
+  parked.
+- **Takeover:** getting into a traffic car makes it yours (for now its driver just vanishes). The
+  driver of a burning car bails out.
+- **Numbers:** a target per room (`TRAFFIC`, default 16). Missing traffic is added one car per tick
+  at a free lane cell at least 14 blocks from every player, so nobody sees it appear. Total cars are
+  capped so dropped-out traffic can't fill the city.
+
+**Measured over 3 minutes in three cities**, after tuning: on average about 14 of 16 traffic cars
+moving, at the worst moment 6–12, about 5 minor bumps. (The first version gridlocked within 30 s
+behind cars parked in the lanes; overtaking, kerb parking and right of way fixed that.)
+
+Not done: traffic lights, visible drivers, traffic on custom maps (needs lane data).
+
+## 10. Networking
+
+### Messages (JSON over one WebSocket)
+
+| Client → server | |
+|---|---|
+| `join {name, roomId?}` | join a room (the default room without an id) |
+| `createRoom {name, room}` | create a room (name, mode, limits) and join it |
+| `input {seq, input}` | one tick of keys, sent every client tick |
+| `ping {time}` | latency measurement |
+
+| Server → client | |
+|---|---|
+| `rooms` | the lobby's room list (on connecting, then when it changes, at most once a second) |
+| `joinFailed {reason}` | full, gone, too many rooms |
+| `welcome` | your ped id, the room, the city seed, tick and snapshot rates |
+| `snapshot` | the full state you can see, plus scores, match state, acks and events |
+| `delta` | what changed since your previous snapshot or delta |
+| `pong` | |
+
+All client messages are validated (`parseClientMessage`): unknown types and malformed fields are
+dropped, names are cleaned up (whitespace collapsed, control characters removed, 16 characters for
+players, 24 for rooms), room settings are clamped, and messages over 1 KB are refused.
+
+### Inputs and authority
+
+- Every input carries an increasing sequence number. The server queues them per player (up to one
+  second's worth) and applies **exactly one per tick, in order**; if a player's queue runs dry it
+  repeats their last input. Duplicates and out-of-order inputs are ignored.
+- Each snapshot reports, per player, the last input applied (`acks`).
+
+### Snapshots, deltas and what each player gets
+
+- The server sends 30 updates a second (every 2 ticks).
+- **Deltas:** after one full snapshot, each player only gets what changed since what *they* were sent
+  last: new entities in full, changed entities with only the changed fields, removed ids. Scores and
+  match state only when they change. WebSocket delivery is reliable and in order, so no extra
+  acknowledgements are needed.
+- **Rounding:** numbers are rounded to 0.0001 before sending; the server keeps full precision.
+- **Interest management:** each player gets the area around them: ±16 blocks on foot, growing with
+  driving speed (+0.9 per block/s, up to ±32) because the camera zooms out. Always included: every
+  player and the car they drive (arrows, name tags), all pickups, deaths and wrecked cars (kill feed,
+  scoring). Sparks and explosions only when nearby. Traffic's internal driving state is never sent.
+
+**Measured bandwidth per player** (4 players):
+
+| Situation | Data per player |
+|---|---|
+| First version: full JSON snapshots, standing still | 245 kB/s |
+| Deltas, standing still / everyone moving + machine gun | 5 / 18 kB/s |
+| 4 players walking, no traffic | 9.5 kB/s |
+| … with 16 traffic cars, everything sent | 50 kB/s |
+| … with 16 traffic cars, nearby only (now) | 13.5 kB/s |
+
+### Prediction and reconciliation (your own player)
+
+- The browser applies each input to its own copy of the world straight away (instant controls) and
+  sends it. When a snapshot arrives, it resets that copy to the server's state and replays the
+  inputs the server hasn't acknowledged yet.
+- Your ped, your car, your own projectiles and the pickups are drawn from the prediction.
+- **Smooth corrections:** if replaying moves you, the difference fades out over ~0.1 s instead of
+  snapping (`CorrectionSmoother`). Jumps over 2 blocks (respawning) are shown at once.
+
+### Everyone else (interpolation)
+
+- Other players, traffic and their bullets are drawn **100 ms in the past**, blended between the two
+  buffered snapshots around that moment (`SnapshotBuffer`). That hides late or lost snapshots (up to
+  two in a row).
+- The client estimates the server clock from the *earliest*-arriving snapshots, drifting back only
+  slowly, so one late packet doesn't make everything jump back.
+- Other players' bullets are kept for a moment after the server removes them, so they don't vanish
+  100 ms before hitting something.
+- **Effects** from your own shots show as soon as the server reports them; everyone else's are timed
+  to match the delayed drawing.
+
+### Deliberately not (yet) done
+
+- **WebRTC / WebTransport** (UDP-like transport): needs extra infrastructure (certificates, relay
+  servers) and mainly helps on lossy connections. Revisit after playtesting over the internet.
+- **Lag compensation for hits:** much less important with visible, dodgeable projectiles than with
+  instant-hit weapons.
+- **Binary encoding:** JSON plus deltas was enough so far.
+
+## 11. Rooms and the lobby
+
+- One server hosts many **rooms**, each its own game with its own random city, match and players.
+  One permanent room ("Downtown", configured with `MODE`, `SCORE_LIMIT`, `TIME_LIMIT`); rooms players
+  create close a minute after their last player leaves. Max 8 players per room, 20 rooms.
+- One room per connection. Names only need to be unique within a room ("dave" → "dave 2").
+- **Invite links:** after joining, the address bar reads `…/#room=<id>`; opening it joins that room.
+  Esc leaves (and drops the room from the address).
+
+## 12. The browser client
+
+- **Sessions:** `LocalSession` (offline) and `NetworkSession` (online) give the rest of the client the
+  same interface: a world to draw, where to draw each entity this frame, and events to show.
+- **Rendering:** Three.js with a perspective camera looking straight down (60° across the shorter
+  screen side), so tall buildings lean outwards like GTA2. The camera rises with speed (11 blocks up
+  on foot, up to 26) and looks ahead of a moving car (0.35 s of travel).
+- **Asset packs** (`AssetPack`): build the map, and create views for cars, peds, projectiles, pickups
+  and effects. Views get the entity's state every frame.
+  - `KenneyPack` (default): Kenney's CC0 art. 3D Car Kit models fitted to each car's exact size;
+    Top-down Shooter characters with a pose per weapon and a ring in the player's colour; ground
+    tiles; bushes on grass; buildings stacked per storey with windowed facades and seamless roofs
+    drawn in code; crates with weapon icons.
+  - `PlaceholderPack` (`?pack=placeholder`, and the fallback if the art fails to load): coloured boxes.
+  - Shared helpers (`assets/common.ts`): car smoke and flames, blood pool, the walk animation.
+- **Walk animation:** GTA2-style feet stepping out in front and behind, the upper body swaying, driven
+  by distance moved on screen (one cycle per 0.9 blocks), so it works for predicted and remote peds
+  alike and feet never slide.
+- **UI:**
+  - **Lobby:** name, live room list, create-room form, offline play.
+  - **In the game:** HUD (health, weapon, controls, status), name tags, and GTA2-style arrows: an
+    outlined block arrow in the player's colour circling your character, pointing at each living
+    player.
+  - **Match and feedback:** match status, kill feed, Tab scoreboard and winner screen, WASTED screen
+    with cause and countdown, and a message when "it" steps on a crate.
+  - Player names are only ever inserted as text, never as HTML.
+- **Controls:** arrows/WASD move and steer, Enter/F enter and exit, Space handbrake, J/Ctrl fire, Z/X
+  switch weapon, Tab scores, Esc leave.
+
+## 13. Hosting and operations
+
+- One Node process serves the built client, `/healthz`, and the game's WebSocket on one port
+  (`npm start`). The page connects back to its own address (`wss://` on HTTPS).
+- **Run exactly one instance:** rooms live in memory, and a restart ends all games.
+- Docker image (`Dockerfile`), Railway config (`railway.json`, step-by-step in the README). Vercel was
+  considered and rejected for the server: serverless functions can't hold WebSockets or run a 60 Hz
+  loop with in-memory rooms. Railway's Hobby plan (about $5 a month) or Render ($7) fit.
+- Environment: `PORT`, `SEED`, `MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `TRAFFIC`, `STATIC_DIR`.
+- Static files are served only from inside the build folder (path-traversal attempts are refused).
+
+### Legal
+
+Rockstar still owns GTA2's art, sound, maps and name. The game ships only CC0 art (Kenney) and art
+drawn in code; `.sty`/`.gmp` files are gitignored. A future "classic" pack would load a player's own
+GTA2 files in their browser, never uploading or hosting them. The game's name is its own.
+
+## 14. Testing
+
+- `npm test` runs node:test suites in all three packages; `npm run typecheck` checks all code.
+- **Simulation:** movement, collisions, combat, damage, deaths, matches, traffic, delta encoding, and
+  **replay determinism** for each of them (a copied world fed the same inputs must end up identical).
+- **Server:** real WebSocket clients against a real server (joining, input ordering, rooms, limits,
+  deltas decoded like the real client does, HTTP serving and path traversal, interest management).
+- **Client:** snapshot interpolation, correction smoothing, arrows, the walk animation, and
+  end-to-end tests of the real `NetworkSession` against a real server (prediction, no double-drawn
+  bullets, events reaching both players).
+- **Measure before tuning:** bandwidth, tick cost and traffic flow were measured with throwaway
+  scripts and the results are recorded above.
+
+## 15. Decisions log
+
+| Decision | Why |
+|---|---|
+| TypeScript everywhere, one shared simulation | Server and client can't drift apart; prediction needs the exact same code |
+| Three.js 3D view instead of a 2D engine | GTA2's leaning buildings come for free from a perspective camera |
+| Authoritative server, inputs only | Consistency and cheat resistance |
+| JSON + deltas + interest management, not binary | Simple to debug; measured to be small enough (5–20 kB/s per player) |
+| Projectile weapons, no hit lag compensation (yet) | GTA2's bullets are visible and dodgeable |
+| Parked cars on the kerb | Cars parked in lanes gridlocked traffic |
+| Traffic drives with player controls | Same physics for everyone, no special cases |
+| "It" stored in the world | It changes the simulation, so prediction must know it |
+| Rocket-destroyed cars blow 0.3 s after the rocket | Two booms feel more powerful than one merged explosion (playtest feedback) |
+| Kenney CC0 art as default | Free to ship and host; no GTA2 assets |
+| Arrows orbit the player, outlined | Placement from GTA2; the bevelled look felt too old-fashioned (playtest feedback) |
+| Railway/Render, not Vercel | Needs a long-running process with WebSockets |
+| Name: Mostly Legal Driving Simulator | Avoids Rockstar's "Grand Theft Auto" trademark |
+
+**Tried and dropped or postponed:**
+
+- **Jumping** (Space on foot, sailing over cars): built, then dropped at the user's request. Kept in a
+  `git stash`.
+- **In-browser map editor:** started (a validated map file format), then postponed. Kept in a
+  `git stash`; the plan is in the project notes.
+- **Classic GTA2-files pack, car mass and handling:** on the roadmap for later.
+
+## 16. Known limitations and next steps
+
+- Pedestrians walking the city (next), and traffic drivers who step out when you take their car.
+- Points popping up where they're earned, like GTA2.
+- Traffic only on generated cities; no traffic lights.
+- No mass in car crashes; no speed-dependent understeer.
+- A misprediction while bumping into another player's car shows as a short glide.
+- WebRTC/WebTransport and hit lag compensation: after playtesting over the internet.
