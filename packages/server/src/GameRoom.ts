@@ -41,6 +41,8 @@ export interface GameRoomOptions {
   gangMembers: number;
   /** Cops on patrol. */
   cops: number;
+  /** Police cars driving around, besides the other traffic. */
+  policeCars: number;
 }
 
 export interface Player {
@@ -79,6 +81,7 @@ export class GameRoom {
       pedestrians: options.pedestrians,
       gangMembers: options.gangMembers,
       cops: options.cops,
+      policeCars: options.policeCars,
     });
     this.match = new Match(options.match, this.world);
     this.emptySince = this.world.tick;

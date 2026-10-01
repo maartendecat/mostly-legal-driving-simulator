@@ -1,13 +1,14 @@
 import { collectPickups, spawnPickup, stepProjectiles, updateWeapons, type GameEvent, type Pickup, type Projectile } from './combat';
 import { PED_MAX_HEALTH, damageCar, damagePed, isDead, updateLifecycle } from './damage';
 import { NO_INPUT, type PlayerInput } from './input';
-import { maintainPedestrians, stepPedestrians, type PedestrianState } from './pedestrians';
+import { ejectDriver, maintainPedestrians, stepPedestrians, type PedestrianState } from './pedestrians';
 import { maintainTraffic, trafficInput, type TrafficState } from './traffic';
 import { isSolidAt, type BlockMap } from './map';
 import { clamp, nextRandom, randomPick, wrapAngle } from './math';
-import { TICK_DT } from './time';
+import { TICK_DT, secondsToTicks } from './time';
 import { CAR_MODELS, type CarModel, type CarModelId } from './vehicles';
 import type { Grudge } from './gangs';
+import { reportCrime, stepPolice, type WantedRecord } from './police';
 import type { WeaponId } from './weapons';
 
 /**
@@ -34,6 +35,10 @@ const CAR_RESTITUTION = 0.3;
 const CRASH_SAFE_SPEED = 5;
 const WALL_CRASH_DAMAGE = 6;
 const CAR_CRASH_DAMAGE = 5;
+/** Cops thrown out of their car by a car thief take this long to get back on their feet. */
+const HIJACKED_COP_STUN_TICKS = secondsToTicks(1);
+/** Hitting a police car faster than this (blocks/s) gets the police after you. */
+const POLICE_BUMP_SPEED = 1;
 /** A car hitting a ped faster than this hurts them; at about 6 blocks/s it's fatal. */
 const RUN_OVER_SAFE_SPEED = 3;
 const RUN_OVER_DAMAGE = 30;
@@ -76,6 +81,8 @@ export interface Ped {
   /** A gang member's gang (a number from gangs.ts); 0 for everyone else. */
   gang: number;
   look: PedLook;
+  /** A player's wanted level: 0, or 1 while the police are after them (see police.ts). */
+  wanted: number;
   /** A pedestrian's walking state; null for players. */
   ai: PedestrianState | null;
 }
@@ -102,6 +109,10 @@ export interface Car {
   lastAttackerId: number | null;
   /** Set while the car is city traffic, driving itself (see traffic.ts). */
   traffic: TrafficState | null;
+  /** A police car (see police.ts). */
+  police: boolean;
+  /** Its lights flashing: chasing someone. */
+  siren: boolean;
 }
 
 export interface World {
@@ -125,6 +136,10 @@ export interface World {
   gangTarget: number;
   /** How many cops to keep patrolling (0: none). */
   copTarget: number;
+  /** How many police cars to keep driving around, besides the other traffic (0: none). */
+  policeCarTarget: number;
+  /** Players the police are after, until when (see police.ts). */
+  wanted: WantedRecord[];
   /** Gangs angry with players who hurt their members (see gangs.ts). */
   grudges: Grudge[];
 }
@@ -138,9 +153,11 @@ export interface WorldOptions {
   gangMembers?: number;
   /** Number of cops on patrol. */
   cops?: number;
+  /** Number of police cars driving around (besides `traffic`). */
+  policeCars?: number;
 }
 
-export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians = 0, gangMembers = 0, cops = 0 }: WorldOptions = {}): World {
+export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians = 0, gangMembers = 0, cops = 0, policeCars = 0 }: WorldOptions = {}): World {
   const world: World = {
     tick: 0,
     map,
@@ -156,6 +173,8 @@ export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians 
     pedestrianTarget: pedestrians,
     gangTarget: gangMembers,
     copTarget: cops,
+    policeCarTarget: policeCars,
+    wanted: [],
     grudges: [],
   };
   for (const spawn of map.carSpawns) spawnRandomCar(world, spawn);
@@ -181,6 +200,8 @@ export function spawnCar(world: World, model: CarModelId, x: number, y: number, 
     removeAt: null,
     lastAttackerId: null,
     traffic: null,
+    police: false,
+    siren: false,
   };
   world.cars.set(car.id, car);
   return car;
@@ -217,6 +238,7 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
     kind: 'player',
     gang: 0,
     look: PLAYER_LOOKS[players % PLAYER_LOOKS.length]!,
+    wanted: 0,
     ai: null,
   };
   world.peds.set(ped.id, ped);
@@ -233,6 +255,7 @@ export function cloneWorld(world: World): World {
     pickups: new Map([...world.pickups].map(([id, p]) => [id, { ...p }])),
     events: [],
     grudges: world.grudges.map((g) => ({ ...g })),
+    wanted: world.wanted.map((w) => ({ ...w })),
   };
 }
 
@@ -297,6 +320,7 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
   collectPickups(world);
   stepProjectiles(world, dt);
   stepPedestrians(world, dt);
+  stepPolice(world);
   updateLifecycle(world);
   maintainTraffic(world);
   maintainPedestrians(world);
@@ -335,8 +359,21 @@ function tryEnterCar(world: World, ped: Ped): boolean {
     }
   }
   if (!best) return false;
+  // Taking a traffic car: its driver is pulled out and runs off. (Only the server knows a car is
+  // traffic, so only it adds the driver; clients see them in the next snapshot.)
+  if (best.traffic && best.police) {
+    // A police car, crew and all: they jump out, and now they're after you.
+    for (const side of [1, -1] as const) {
+      const cop = ejectDriver(world, best, ped, 'cop', side);
+      if (cop) cop.ai!.waitTicks = HIJACKED_COP_STUN_TICKS; // a moment to get away
+    }
+    reportCrime(world, ped.id);
+  } else if (best.traffic) {
+    ejectDriver(world, best, ped);
+  }
+  best.traffic = null;
+  best.siren = false;
   best.driverId = ped.id;
-  best.traffic = null; // a traffic car's driver hops out and runs off
   ped.carId = best.id;
   return true;
 }
@@ -348,20 +385,27 @@ function tryExitCar(world: World, ped: Ped): void {
     return;
   }
   if (carSpeed(car) > MAX_EXIT_SPEED) return;
+  const exit = carExitPoint(world.map, car);
+  if (!exit) return;
+  ped.x = exit.x;
+  ped.y = exit.y;
+  ped.heading = car.heading;
+  ped.carId = null;
+  car.driverId = null;
+}
+
+/**
+ * Where someone steps out: the driver's side (left, `side` 1), or the passenger's (right, -1), or
+ * the other side if that one's blocked.
+ */
+export function carExitPoint(map: BlockMap, car: Car, side: 1 | -1 = 1): { x: number; y: number } | null {
   const offset = CAR_MODELS[car.model].width / 2 + PED_RADIUS + 0.05;
-  // Prefer the driver's side (left), fall back to the right if that's blocked.
-  for (const side of [1, -1]) {
-    const x = car.x - Math.sin(car.heading) * offset * side;
-    const y = car.y + Math.cos(car.heading) * offset * side;
-    if (!pedCollides(world.map, x, y)) {
-      ped.x = x;
-      ped.y = y;
-      ped.heading = car.heading;
-      ped.carId = null;
-      car.driverId = null;
-      return;
-    }
+  for (const s of [side, -side]) {
+    const x = car.x - Math.sin(car.heading) * offset * s;
+    const y = car.y + Math.cos(car.heading) * offset * s;
+    if (!pedCollides(map, x, y)) return { x, y };
   }
+  return null;
 }
 
 /** Keeps peds out of cars, and hurts them if the car hits them fast enough (running them over). */
@@ -539,6 +583,11 @@ function collideCars(world: World, a: Car, b: Car): void {
   }
 
   const approach = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+  // Ramming a police car (more than a touch) is a crime: the police are after you at once.
+  if (-approach > POLICE_BUMP_SPEED) {
+    if (a.police && !a.wrecked) reportCrime(world, b.driverId);
+    if (b.police && !b.wrecked) reportCrime(world, a.driverId);
+  }
   if (-approach > CRASH_SAFE_SPEED) {
     // Both cars get hurt; each driver gets the credit for what they did to the other car.
     const damage = (-approach - CRASH_SAFE_SPEED) * CAR_CRASH_DAMAGE;

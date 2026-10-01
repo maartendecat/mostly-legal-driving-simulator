@@ -36,6 +36,17 @@ export class KillFeed {
     this.push(entry);
   }
 
+  /** A player arrested by the police. */
+  addBusted(session: GameSession, pedId: number): void {
+    const entry = document.createElement('div');
+    entry.className = pedId === session.myPedId ? 'kill mine' : 'kill';
+    const name = document.createElement('span');
+    name.className = pedId === session.myPedId ? 'name me' : 'name';
+    name.textContent = pedId === session.myPedId ? 'You' : playerName(session, pedId);
+    entry.append('🚓 ', name, pedId === session.myPedId ? ' got busted' : ' got busted');
+    this.push(entry);
+  }
+
   /** Tag: announces the new "it". */
   addNewIt(session: GameSession, pedId: number): void {
     const entry = document.createElement('div');

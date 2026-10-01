@@ -64,14 +64,17 @@ flowchart LR
 - **Entities** (all plain, serializable data in `World`):
   - `Ped`: a player or one of the city's people (`kind`: player, civilian, gangster or cop), with
     `gang` for gang members and `look` (man, woman, youth, worker, elder) for players and civilians.
-    Position, heading, health, current weapon and ammo, `carId` when driving, `respawnAt` when dead,
-    input edge-detection flags, and `ai` (walking state) for the city's people.
+    Position, heading, health, current weapon and ammo, `carId` when driving, `respawnAt` when dead
+    (or arrested), `wanted` level, input edge-detection flags, and `ai` (walking state) for the
+    city's people.
   - `Car`: model, position, heading, velocity, health, `driverId`, burning/wreck state,
-    `lastAttackerId` (for kill credit), `traffic` (self-driving state) or null.
+    `lastAttackerId` (for kill credit), `traffic` (self-driving state) or null, `police` and
+    `siren` (lights flashing while chasing).
   - `Projectile`: bullet or rocket in flight. `Pickup`: weapon crate with a respawn time.
-- **Events** (`GameEvent`): impact, explosion, death, carDestroyed, gangAngry. Produced by a tick,
+- **Events** (`GameEvent`): impact, explosion, death, carDestroyed, gangAngry, wanted, busted. Produced by a tick,
   used for effects, the kill feed, messages and scoring; they don't change the world themselves.
 - **Grudges** (`world.grudges`): which gang is after which player, until when (see [§10](#10-pedestrians-gangs-and-cops)).
+- **Wanted** (`world.wanted`): which players the police are after, until when (see [§11](#11-police)).
 - **Ids** come from one counter (`nextId`) shared by all entity types.
 - **Randomness:** a mulberry32 generator whose state is part of the world (`rngState`), so it's
   copied, sent in snapshots and replayed exactly.
@@ -115,8 +118,9 @@ A map is a grid of cells (`BlockMap`):
 3. **Car-to-car collisions.**
 4. **Peds in cars** follow their car; **peds on foot** are pushed out of cars (and run over if the
    car is fast).
-5. **Pickups, projectiles, pedestrians** (who see this tick's gunfire), **lifecycle** (respawns,
-   bodies cleared, burning cars exploding, wrecks replaced), **traffic and pedestrian upkeep**.
+5. **Pickups, projectiles, pedestrians** (who see this tick's gunfire), **police** (who's wanted,
+   which police cars chase), **lifecycle** (respawns, bodies cleared, burning cars exploding, wrecks
+   replaced), **traffic and pedestrian upkeep**.
 
 On the server, the `Match` then scores the tick's events (see [§8](#8-game-modes-and-matches)).
 
@@ -200,7 +204,8 @@ Cars that drive themselves (`traffic.ts`, part of the shared simulation).
 - **Route:** a short list of waypoints along its lane. At an intersection it picks straight on
   (weight 2), left or right (weight 1 each), using route templates for "arriving eastbound" rotated
   to the actual direction; exits that don't lead into a matching lane are skipped.
-- **Driving:** aims 1.1 blocks ahead along the route, cruises at 6 blocks/s, 3.2 in turns.
+- **Driving:** aims 1.1 blocks ahead along the route, cruises at 4.5 blocks/s, 2.6 in turns (slowed
+  down from 6 and 3.2 after playtesting: traffic felt too fast; flow didn't suffer, see below).
 - **Braking:** stops for any car or person in front, within 1.2 blocks plus a speed-based margin.
 - **Right of way:** checked from two cells before an intersection. Cars approaching or inside it take
   turns; the one closest to the centre goes first (ties: lower id), so two cars never wait for each
@@ -212,8 +217,13 @@ Cars that drive themselves (`traffic.ts`, part of the shared simulation).
 - **Getting unstuck:** blocked for 4 s anyway, or not moving for 1.5 s while wanting to, it backs up
   for 0.8 s and finds its lane again. If there's no lane nearby, it drops out of traffic and stays
   parked.
-- **Takeover:** getting into a traffic car makes it yours (for now its driver just vanishes). The
-  driver of a burning car bails out.
+- **Takeover:** getting into a traffic car makes it yours. Its driver is pulled out: a civilian
+  appears at the driver's door (or the other one, if that's blocked) and runs away from you for 4 s,
+  then carries on as an ordinary pedestrian. Only the server knows which cars are traffic, so a
+  client's prediction just gets in; the driver shows up with the next snapshot.
+- **Fire:** the driver of a traffic car that catches fire bails out the same way, running from the
+  car, and gets clear before it blows (3 s). The car rolls to a stop. A car blown up by a rocket
+  (0.3 s) takes its driver with it: no time to get out.
 - **Numbers:** a target per room (`TRAFFIC`, default 16). Missing traffic is added one car per tick
   at a free lane cell at least 14 blocks from every player, so nobody sees it appear. Total cars are
   capped so dropped-out traffic can't fill the city.
@@ -281,18 +291,49 @@ kinds: **civilians** (described first), **gang members** and **cops** (further d
 
 **Cops** walk the whole city like civilians, armed and fearless, in navy. A body they notice they
 walk straight over to (to within 1 block) and look at for 4 s, then carry on. What they do about
-crime (and the army) is the police option, still to come. Gang members ignore bodies.
+crime: see [§11](#11-police). Gang members ignore bodies.
 
 - **Network:** their walking state isn't sent; like traffic they only go to nearby players, and so do
   their deaths.
 
 **Measured over 15 simulated city-minutes** (16 traffic cars, 40 pedestrians, five cities): on the
 pavement 97% of the time, none run over by traffic, everyone keeps moving (about 150 blocks each in
-3 minutes). A full city costs about 0.45 ms per simulation tick; 0.5 ms with gangs and cops (65 people). (The first versions lost 12
+3 minutes). A full city costs about 0.45 ms per simulation tick; 0.5 ms with gangs and cops (65
+people). (The first versions lost 12
 pedestrians to traffic in that time: panicking and returning pedestrians took the shortest way, often
 along a lane; and the danger check reacted to traffic merely driving past.)
 
-## 11. Networking
+## 11. Police
+
+A first part of the police (`police.ts`); the full design (crimes by severity, escalating response,
+the army) is still to come as part of the police option.
+
+- **Police cars:** besides the other traffic, a number of police cars drive around (`POLICE_CARS`,
+  default 2): sedans with a crew of two, drawn with the Car Kit's police car (which ordinary sedans
+  no longer use).
+- **Crimes** (any of them makes a player wanted, at once, wherever the police are): ramming a
+  police car (an impact over 1 block/s; touching doesn't count), hurting a cop or a police car,
+  stealing a police car (both cops jump out, needing 1 s to get back on their feet). Only players
+  commit crimes. A `wanted` event tells that player ("The police are after you!"); the HUD shows
+  WANTED ★.
+- **Chase:** police cars within 20 blocks of a wanted player give chase with their lights flashing:
+  straight at them when they can see them, otherwise along the roads (a breadth-first search over
+  road cells, redone every half second), at up to 10 blocks/s (4 in turns), backing up when stuck.
+  Once the suspect is within 4 blocks and (nearly) stopped, or on foot, the car pulls up and both
+  cops get out. Cops on foot within 15 blocks run after a wanted player.
+- **Arrest:** a cop within reach of a wanted player on foot, or in a car going slower than 1
+  block/s, arrests them: BUSTED (`busted` event, sent to everyone like a player's death). Out of
+  their car, weapons gone, taken away (not drawn, not a body) and back after 3 s like a respawn.
+  It counts as a death on the scoreboard, but nobody's frag.
+- **Losing them:** every tick a cop on foot or a crewed police car within 12 blocks, in plain sight,
+  renews the 30 s the police keep looking. Unseen for 30 s, they give up; chasing cars go back to
+  driving around. Dying clears your record too.
+- **Measured:** standing still after ramming a police car: busted after about 1.9 s (8 cities). A
+  police car 12–19 blocks away, no cops on foot: busted after 2.3–10 s, typically 3–4 (11 cities).
+- **Network:** chasing is decided on the server only (traffic state isn't sent); clients see the
+  `siren` flag and the cops getting out.
+
+## 12. Networking
 
 ### Messages (JSON over one WebSocket)
 
@@ -376,7 +417,7 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
   instant-hit weapons.
 - **Binary encoding:** JSON plus deltas was enough so far.
 
-## 12. Rooms and the lobby
+## 13. Rooms and the lobby
 
 - One server hosts many **rooms**, each its own game with its own random city, match and players.
   One permanent room ("Downtown", configured with `MODE`, `SCORE_LIMIT`, `TIME_LIMIT`); rooms players
@@ -385,7 +426,7 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
 - **Invite links:** after joining, the address bar reads `…/#room=<id>`; opening it joins that room.
   Esc leaves (and drops the room from the address).
 
-## 13. The browser client
+## 14. The browser client
 
 - **Sessions:** `LocalSession` (offline) and `NetworkSession` (online) give the rest of the client the
   same interface: a world to draw, where to draw each entity this frame, and events to show.
@@ -414,7 +455,7 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
 - **Controls:** arrows/WASD move and steer, Enter/F enter and exit, Space handbrake, J/Ctrl fire, Z/X
   switch weapon, Tab scores, Esc leave.
 
-## 14. Hosting and operations
+## 15. Hosting and operations
 
 - One Node process serves the built client, `/healthz`, and the game's WebSocket on one port
   (`npm start`). The page connects back to its own address (`wss://` on HTTPS).
@@ -423,7 +464,7 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
   considered and rejected for the server: serverless functions can't hold WebSockets or run a 60 Hz
   loop with in-memory rooms. Railway's Hobby plan (about $5 a month) or Render ($7) fit.
 - Environment: `PORT`, `SEED`, `MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `TRAFFIC`, `PEDESTRIANS`,
-  `GANG_MEMBERS`, `COPS`, `STATIC_DIR`.
+  `GANG_MEMBERS`, `COPS`, `POLICE_CARS`, `STATIC_DIR`.
 - Static files are served only from inside the build folder (path-traversal attempts are refused).
 
 ### Legal
@@ -432,11 +473,12 @@ Rockstar still owns GTA2's art, sound, maps and name. The game ships only CC0 ar
 drawn in code; `.sty`/`.gmp` files are gitignored. A future "classic" pack would load a player's own
 GTA2 files in their browser, never uploading or hosting them. The game's name is its own.
 
-## 15. Testing
+## 16. Testing
 
 - `npm test` runs node:test suites in all three packages; `npm run typecheck` checks all code.
 - **Simulation:** movement, collisions, combat, damage, deaths, matches, traffic, pedestrians,
-  gangs (turf, grudges, retaliation, chasing), cops, delta encoding, and
+  gangs (turf, grudges, retaliation, chasing), cops, police (crimes, chases, arrests, giving up),
+  delta encoding, and
   **replay determinism** for each of them (a copied world fed the same inputs must end up identical).
 - **Server:** real WebSocket clients against a real server (joining, input ordering, rooms, limits,
   deltas decoded like the real client does, HTTP serving and path traversal, interest management).
@@ -446,7 +488,7 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 - **Measure before tuning:** bandwidth, tick cost and traffic flow were measured with throwaway
   scripts and the results are recorded above.
 
-## 16. Decisions log
+## 17. Decisions log
 
 | Decision | Why |
 |---|---|
@@ -460,6 +502,9 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 | "It" stored in the world | It changes the simulation, so prediction must know it |
 | Pedestrians are peds with `kind` and `ai` | Shooting, running over, bodies and physics work for them unchanged |
 | Pedestrians dodge cars sideways, ignore passing traffic | Measured: fleeing "away" or reacting to any nearby car got them run over |
+| Ramming a police car makes you wanted at once | Playtest feedback; the rest of the police design comes later |
+| Busted = taken away, back after 3 s, weapons gone | Like a respawn, but without a body |
+| Traffic drivers exist only when they get out | No ped to carry around in every traffic car; spawned at the door when needed |
 | Gangs: fixed turf plus per-player grudges | Like GTA2's gang respect, but simple: hurt one, the gang is after you for a while |
 | Gang aim: 0.5 s to aim, a shot every 1.25 s, 0.16 rad off | Measured: tighter aim killed a player standing still in 2–4 s, looser took 15–25 s |
 | Cops in the blue-shirted sprite, tinted navy | Tinting the soldier sprite blue only made it darker green |
@@ -477,9 +522,11 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
   `git stash`; the plan is in the project notes.
 - **Classic GTA2-files pack, car mass and handling:** on the roadmap for later.
 
-## 17. Known limitations and next steps
+## 18. Known limitations and next steps
 
-- Traffic drivers who step out (as pedestrians) when you take their car; fire trucks; the police option (cops reacting to crime, then the army).
+- Fire trucks; the rest of the police: crimes by severity (seen or not), escalating response, the
+  army; police as a per-game option.
+- Chasing police cars don't avoid other cars and only know the roads, not shortcuts across pavements.
 - Gang members don't drive, don't fight each other, and chase in a straight line (no path finding).
 - Points popping up where they're earned, like GTA2.
 - Traffic only on generated cities; no traffic lights.

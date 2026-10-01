@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   Block,
+  CAR_BURN_TICKS,
   CAR_MODELS,
   DIRECTIONS,
   Lane,
   NO_INPUT,
   PED_MAX_HEALTH,
+  ROCKET_CAR_FUSE_TICKS,
   carCollides,
   carSpeed,
   cloneWorld,
@@ -119,7 +121,7 @@ test('traffic stops for people on the road', () => {
   assert.equal(ped.health, PED_MAX_HEALTH);
 });
 
-test('getting into a traffic car makes it yours', () => {
+test('getting into a traffic car makes it yours; its driver is pulled out and runs off', () => {
   const { world, car } = oneCar();
   run(world, 30);
   car.vx = car.vy = 0;
@@ -127,18 +129,40 @@ test('getting into a traffic car makes it yours', () => {
   stepWorld(world, new Map([[ped.id, { ...NO_INPUT, enter: true }]]));
   assert.equal(ped.carId, car.id);
   assert.equal(car.traffic, null);
+  const drivers = [...world.peds.values()].filter((p) => p.kind === 'civilian');
+  assert.equal(drivers.length, 1, 'the driver got out');
+  const driver = drivers[0]!;
+  assert.ok(Math.hypot(driver.x - car.x, driver.y - car.y) < 1.2, 'right beside the car');
+  assert.ok(driver.ai!.panicTicks > 0, 'running');
+  const from = Math.hypot(driver.x - ped.x, driver.y - ped.y);
+  run(world, 60);
+  assert.ok(Math.hypot(driver.x - car.x, driver.y - car.y) > from + 1.5, 'away from the car thief');
   const before = car.heading;
   run(world, 1);
   for (let i = 0; i < 30; i++) stepWorld(world, new Map([[ped.id, { ...NO_INPUT, up: true, left: true }]]));
   assert.ok(Math.abs(wrapAngle(car.heading - before)) > 0.3, 'it goes where the player steers');
 });
 
-test('the driver of a burning car bails out; the car stops', () => {
+test('the driver of a burning car bails out and gets clear before it blows; the car stops', () => {
   const { world, car } = oneCar();
   run(world, 60);
   damageCar(world, car, 1000, null);
   run(world, 1);
   assert.equal(car.traffic, null);
+  const driver = [...world.peds.values()].find((p) => p.kind === 'civilian');
+  assert.ok(driver, 'the driver got out');
+  assert.ok(driver.ai!.panicTicks > 0, 'running');
+  run(world, CAR_BURN_TICKS);
+  assert.ok(car.wrecked, 'it blew');
+  assert.equal(driver.respawnAt, null, 'and the driver made it');
+});
+
+test('a traffic car blown up by a rocket takes its driver with it: no time to get out', () => {
+  const { world, car } = oneCar();
+  run(world, 60);
+  damageCar(world, car, 1000, null, ROCKET_CAR_FUSE_TICKS);
+  run(world, 1);
+  assert.equal([...world.peds.values()].length, 0);
 });
 
 test('traffic is kept at the target, appearing out of sight of players, and wrecks get replaced', () => {

@@ -8,6 +8,7 @@ import {
   canPickUpWeapons,
   carSpeed,
   gangName,
+  isBusted,
   isDead,
   isPickupAvailable,
   turfAt,
@@ -96,7 +97,11 @@ async function main(): Promise<void> {
     const it = session.match?.mode === 'tag' ? session.world.itPedId : null;
     if (it !== null && it !== lastIt) killFeed.addNewIt(session, it);
     lastIt = it;
-    for (const event of events) if (event.type === 'gangAngry' && event.pedId === session.myPedId) toast.show(`${gangName(event.gang)} are after you!`);
+    for (const event of events) {
+      if (event.type === 'gangAngry' && event.pedId === session.myPedId) toast.show(`${gangName(event.gang)} are after you!`);
+      if (event.type === 'wanted' && event.pedId === session.myPedId) toast.show('The police are after you!');
+      if (event.type === 'busted' && session.players.some((p) => p.pedId === event.pedId)) killFeed.addBusted(session, event.pedId);
+    }
     blockedPickupId = explainBlockedPickup(session, toast, blockedPickupId);
     scoreboard.update(session);
     const others = otherPlayers(session, transforms);
@@ -236,6 +241,7 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
     status,
     weapon,
     turf ? `Turf of ${gangName(turf)}` : '',
+    ped && ped.wanted > 0 ? `WANTED ${'★'.repeat(ped.wanted)}  the police are after you` : '',
     '',
     'Arrows/WASD  move / steer',
     'Enter or F   get in / out of car',
@@ -254,9 +260,10 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
     .join('\n');
 }
 
-/** The big red "WASTED" overlay, with who did it and a respawn countdown. */
+/** The big red "WASTED" overlay (or blue "BUSTED"), with who did it and a respawn countdown. */
 class WastedScreen {
   private readonly element = document.getElementById('wasted')!;
+  private readonly title = document.getElementById('wasted-title')!;
   private readonly cause = document.getElementById('wasted-cause')!;
   private readonly countdown = document.getElementById('wasted-countdown')!;
 
@@ -266,8 +273,14 @@ class WastedScreen {
       if (event.type === 'death' && event.pedId === me) this.cause.textContent = describeOwnDeath(session, event);
     }
     const ped = me === null ? undefined : session.world.peds.get(me);
+    for (const event of events) {
+      if (event.type === 'busted' && event.pedId === me) this.cause.textContent = 'The police got you. Your weapons are gone.';
+    }
     const respawnAt = ped?.respawnAt ?? null;
     this.element.hidden = respawnAt === null;
+    const busted = ped !== undefined && isBusted(ped);
+    this.element.classList.toggle('busted', busted);
+    this.title.textContent = busted ? 'BUSTED' : 'WASTED';
     if (respawnAt !== null) {
       const seconds = Math.max(1, Math.ceil((respawnAt - session.world.tick) / TICK_RATE));
       this.countdown.textContent = `Back in ${seconds}...`;

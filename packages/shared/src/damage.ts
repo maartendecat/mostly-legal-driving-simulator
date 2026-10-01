@@ -1,6 +1,7 @@
 import { randomPick } from './math';
 import { provokeGang } from './gangs';
-import { CORPSE_TICKS } from './pedestrians';
+import { reportCrime } from './police';
+import { CORPSE_TICKS, ejectDriver } from './pedestrians';
 import { secondsToTicks } from './time';
 import { CAR_MODELS } from './vehicles';
 import type { WeaponId } from './weapons';
@@ -24,6 +25,8 @@ const CAR_EXPLOSION_RADIUS = 2.5;
 const CAR_EXPLOSION_DAMAGE = 150;
 /** Tag: a car driven by "it" takes this much more damage, so it catches fire quickly. */
 const IT_CAR_DAMAGE = 2;
+/** A traffic driver only gets out of a burning car if it takes at least this long to blow. */
+const MIN_BAIL_OUT_TICKS = secondsToTicks(1);
 /** A new car only appears at a spawn point with nothing this close to it. */
 const CAR_RESPAWN_CLEARANCE = 2.5;
 
@@ -38,6 +41,7 @@ export function isDead(ped: Ped): boolean {
 export function damagePed(world: World, ped: Ped, amount: number, attackerId: number | null, cause: DamageCause): void {
   if (isDead(ped) || amount <= 0) return;
   if (ped.kind === 'gangster') provokeGang(world, ped, attackerId);
+  if (ped.kind === 'cop') reportCrime(world, attackerId);
   ped.health -= amount;
   if (ped.health > 0) return;
 
@@ -71,8 +75,17 @@ export function damageCar(world: World, car: Car, amount: number, attackerId: nu
   if (car.driverId !== null && car.driverId === world.itPedId) amount *= IT_CAR_DAMAGE;
   // Accidents don't clear the credit: shoot a car, then its driver crashes it, and it's still yours.
   if (attackerId !== null) car.lastAttackerId = attackerId;
+  if (car.police) reportCrime(world, attackerId);
   car.health = Math.max(0, car.health - amount);
   if (car.health > 0) return;
+  // A traffic car's driver bails out of the burning car and runs (no time for that when a rocket
+  // blows it up); the car rolls to a stop. A police car's crew both get out.
+  if (car.traffic && car.explodeAt === null && fuseTicks >= MIN_BAIL_OUT_TICKS) {
+    ejectDriver(world, car, car, car.police ? 'cop' : 'civilian', 1);
+    if (car.police) ejectDriver(world, car, car, 'cop', -1);
+  }
+  car.traffic = null;
+  car.siren = false;
   const explodeAt = world.tick + fuseTicks;
   car.explodeAt = car.explodeAt === null ? explodeAt : Math.min(car.explodeAt, explodeAt);
 }

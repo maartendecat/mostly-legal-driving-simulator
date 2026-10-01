@@ -32,6 +32,8 @@ export interface GameServerOptions {
   gangMembers?: number;
   /** Cops per room (default: none). */
   cops?: number;
+  /** Police cars per room, besides the other traffic (default: none). */
+  policeCars?: number;
 }
 
 const DEFAULT_EMPTY_ROOM_TICKS = secondsToTicks(60);
@@ -72,6 +74,7 @@ export class GameServer {
       pedestrians: options.pedestrians ?? 0,
       gangMembers: options.gangMembers ?? 0,
       cops: options.cops ?? 0,
+      policeCars: options.policeCars ?? 0,
     });
     // One port for everything: the game page (if built), a health check, and the game connections.
     const serveStatic = options.staticDir ? staticFileHandler(options.staticDir) : null;
@@ -186,6 +189,7 @@ export class GameServer {
       pedestrians: this.options.pedestrians ?? 0,
       gangMembers: this.options.gangMembers ?? 0,
       cops: this.options.cops ?? 0,
+      policeCars: this.options.policeCars ?? 0,
     });
   }
 

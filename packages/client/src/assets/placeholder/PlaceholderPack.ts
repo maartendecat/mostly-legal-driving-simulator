@@ -4,6 +4,7 @@ import {
   CAR_MODELS,
   PED_RADIUS,
   RoadMarking,
+  isBusted,
   type BlockMap,
   type Car,
   type GameEvent,
@@ -186,6 +187,8 @@ export class PlaceholderPack implements AssetPack {
     return {
       object: group,
       update: (dt, state) => {
+        // Arrested: taken away until they're back.
+        group.visible = !isBusted(state);
         const dead = state.respawnAt !== null;
         // Feet step out while walking, and the body sways along. Dead: flat on the ground.
         figure.rotation.z = walk.update(dt, group.position.x, group.position.y, group.rotation.z, !dead);

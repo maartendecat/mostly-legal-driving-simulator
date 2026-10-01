@@ -46,13 +46,17 @@ export function visibleSnapshot(snapshot: Snapshot, view: View | null, playerPed
 }
 
 /**
- * Players' deaths and wrecked cars go to everyone (kill feed, scoring); a gang's grudge to the
- * player it's against; pedestrians' deaths, sparks and explosions only to those who can see them.
+ * Players' deaths, arrests and wrecked cars go to everyone (kill feed, scoring); a gang's grudge,
+ * or the police being after them, to that player only; pedestrians' deaths, sparks and explosions only to those who can see them.
  */
 export function visibleEvents(events: readonly GameEvent[], view: View | null, playerPeds: ReadonlySet<number>, viewer: number): GameEvent[] {
   if (!view) return [...events];
   return events.filter(
-    (e) => (e.type === 'death' && playerPeds.has(e.pedId)) || e.type === 'carDestroyed' || (e.type === 'gangAngry' ? e.pedId === viewer : sees(view, e.x, e.y)),
+    (e) =>
+      (e.type === 'death' && playerPeds.has(e.pedId)) ||
+      e.type === 'busted' ||
+      e.type === 'carDestroyed' ||
+      (e.type === 'gangAngry' || e.type === 'wanted' ? e.pedId === viewer : sees(view, e.x, e.y)),
   );
 }
 

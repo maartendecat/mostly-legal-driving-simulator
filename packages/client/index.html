@@ -227,6 +227,12 @@
         color: #d11a1a;
         text-shadow: 0 3px 0 #000, 0 0 24px rgba(0, 0, 0, 0.8);
       }
+      #wasted.busted {
+        background: radial-gradient(circle, rgba(0, 20, 80, 0.15), rgba(0, 10, 50, 0.45));
+      }
+      #wasted.busted .title {
+        color: #2f6bff;
+      }
       #wasted .detail {
         margin-top: 8px;
         font-size: 16px;
@@ -388,7 +394,7 @@
     <div id="scoreboard" hidden></div>
     <div id="toast" role="status"></div>
     <div id="wasted" hidden>
-      <div class="title">WASTED</div>
+      <div class="title" id="wasted-title">WASTED</div>
       <div class="detail" id="wasted-cause"></div>
       <div class="detail" id="wasted-countdown"></div>
     </div>

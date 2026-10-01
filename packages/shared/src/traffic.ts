@@ -1,9 +1,10 @@
 import { NO_INPUT, type PlayerInput } from './input';
 import { Block, DIRECTIONS, Lane, laneAt, type BlockMap } from './map';
 import { nextRandom, randomPick, wrapAngle } from './math';
+import { pursuitInput } from './police';
 import { secondsToTicks } from './time';
 import { CAR_MODELS } from './vehicles';
-import { spawnRandomCar, type Car, type Ped, type World } from './world';
+import { spawnCar, spawnRandomCar, type Car, type Ped, type World } from './world';
 
 /**
  * City traffic: cars that drive themselves along the lanes of the map. A traffic car is steered by
@@ -30,10 +31,12 @@ export interface TrafficState {
   blockedTicks: number;
   /** While overtaking: the car or ped being passed (not a reason to brake), until it's behind us. */
   passing: number | null;
+  /** A police car chasing a wanted player (see police.ts); `route` is then its way to them. */
+  pursuing: number | null;
 }
 
-const CRUISE_SPEED = 6;
-const TURN_SPEED = 3.2;
+const CRUISE_SPEED = 4.5;
+const TURN_SPEED = 2.6;
 /** How far ahead (in blocks) the driver aims along its route. */
 const AIM_DISTANCE = 1.1;
 const WAYPOINT_REACHED = 0.7;
@@ -65,7 +68,7 @@ export function startTraffic(world: World, car: Car): boolean {
     car.traffic = null;
     return false;
   }
-  car.traffic = { route: [start], stuckTicks: 0, reverseTicks: 0, blockedTicks: 0, passing: null };
+  car.traffic = { route: [start], stuckTicks: 0, reverseTicks: 0, blockedTicks: 0, passing: null, pursuing: car.traffic?.pursuing ?? null };
   return true;
 }
 
@@ -77,6 +80,7 @@ export function trafficInput(world: World, car: Car): PlayerInput {
     car.traffic = null; // the driver bails out
     return NO_INPUT;
   }
+  if (traffic.pursuing !== null) return pursuitInput(world, car, traffic);
   const cos = Math.cos(car.heading);
   const sin = Math.sin(car.heading);
   const forward = car.vx * cos + car.vy * sin;
@@ -140,14 +144,22 @@ export function trafficInput(world: World, car: Car): PlayerInput {
   };
 }
 
-/** Keeps the number of traffic cars at the world's target, adding at most one per tick. */
+/**
+ * Keeps the number of traffic cars, and of police cars among them, at the world's targets, adding
+ * at most one per tick.
+ */
 export function maintainTraffic(world: World): void {
-  if (world.trafficTarget <= 0) return;
+  if (world.trafficTarget <= 0 && world.policeCarTarget <= 0) return;
   let count = 0;
-  for (const car of world.cars.values()) if (car.traffic) count++;
-  if (count >= world.trafficTarget) return;
+  let police = 0;
+  for (const car of world.cars.values()) {
+    if (car.traffic && car.police) police++;
+    else if (car.traffic) count++;
+  }
+  const addPolice = police < world.policeCarTarget;
+  if (count >= world.trafficTarget && !addPolice) return;
   // Cars that dropped out of traffic stay behind as parked cars; don't let the city fill up with them.
-  if (world.cars.size >= world.map.carSpawns.length + world.trafficTarget * 2) return;
+  if (world.cars.size >= world.map.carSpawns.length + (world.trafficTarget + world.policeCarTarget) * 2) return;
 
   const cells = laneCells(world.map);
   if (cells.length === 0) return;
@@ -155,7 +167,9 @@ export function maintainTraffic(world: World): void {
   const clear = (e: { x: number; y: number }, distance: number) => Math.hypot(e.x - cell.x, e.y - cell.y) > distance;
   if (![...world.cars.values()].every((c) => clear(c, SPAWN_CLEARANCE))) return;
   if (![...world.peds.values()].every((p) => clear(p, SPAWN_DISTANCE_FROM_PLAYERS))) return;
-  const car = spawnRandomCar(world, { x: cell.x, y: cell.y, heading: DIRECTIONS[cell.dir]!.heading });
+  const heading = DIRECTIONS[cell.dir]!.heading;
+  const car = addPolice ? spawnCar(world, 'sedan', cell.x, cell.y, heading) : spawnRandomCar(world, { x: cell.x, y: cell.y, heading });
+  if (addPolice) Object.assign(car, { police: true, color: 0xffffff });
   startTraffic(world, car);
 }
 

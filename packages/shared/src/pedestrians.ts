@@ -1,11 +1,13 @@
 import { fireWeapon } from './combat';
 import { isDead } from './damage';
+import { bust, canArrest, nearestWanted } from './police';
 import { GANGS, GANG_NOTICE_RANGE, GANG_SHOOT_RANGE, expireGrudges, turfAt } from './gangs';
-import { Block, DIRECTIONS, Lane, isSolidAt, kindAt, laneAt, type BlockMap } from './map';
+import { Block, DIRECTIONS, Lane, kindAt, laneAt, lineOfSight, type BlockMap } from './map';
 import { nextRandom, randomInt, randomPick, wrapAngle } from './math';
 import { secondsToTicks } from './time';
+import { CAR_MODELS } from './vehicles';
 import { WEAPONS } from './weapons';
-import { carSpeed, pedCollides, spawnPed, type Ped, type PedKind, type PedLook, type World } from './world';
+import { PED_RADIUS, carExitPoint, carSpeed, pedCollides, spawnPed, type Car, type Ped, type PedKind, type PedLook, type World } from './world';
 
 /**
  * Pedestrians: the people walking around the city. They stroll along the pavements cell by cell,
@@ -91,6 +93,10 @@ const STARE_EXTRA_TICKS = secondsToTicks(2);
 const COP_INSPECT_DISTANCE = 1;
 const COP_INSPECT_TICKS = secondsToTicks(4);
 const SEEN_BODIES_REMEMBERED = 4;
+/** Cops run after a wanted player this close (in blocks)... */
+const COP_CHASE_RANGE = 15;
+/** ...and arrest them from this far beyond touching. */
+const ARREST_REACH = 0.25;
 /** A distance further than any target, for "no progress measured yet". */
 const FAR = 1e6;
 
@@ -123,16 +129,43 @@ export function spawnPedestrian(world: World, cx: number, cy: number, kind: Excl
 /** Moves every pedestrian for one tick. Runs after projectiles, so it sees this tick's events. */
 export function stepPedestrians(world: World, dt: number): void {
   expireGrudges(world);
-  const bodies = [...world.peds.values()].filter(isDead);
+  // (Not those who were arrested and taken away: they're not lying there.)
+  const bodies = [...world.peds.values()].filter((p) => isDead(p) && p.health <= 0);
   for (const ped of world.peds.values()) {
     const ai = ped.ai;
     if (!ai || ped.respawnAt !== null || ped.carId !== null) continue;
     if (ped.kind === 'gangster' && fightGrudge(world, ped, ai, dt)) continue;
+    if (ped.kind === 'cop' && chaseSuspect(world, ped, ai, dt)) continue;
     noticeDanger(world, ped, ai);
     // Gang members have seen it all before.
     if (bodies.length > 0 && ped.kind !== 'gangster') noticeBodies(world, ped, ai, bodies);
     walk(world, ped, ai, dt);
   }
+}
+
+/**
+ * A traffic car's driver gets out (on `side`, see carExitPoint), pulled out by a hijacker or
+ * bailing out of a burning car, and runs away from `from` (the hijacker or the car). Police cars'
+ * crews get out as cops. Returns the driver, or null if there's no room
+ * to get out (then they're just gone).
+ */
+export function ejectDriver(
+  world: World,
+  car: Car,
+  from: { x: number; y: number },
+  kind: 'civilian' | 'cop' = 'civilian',
+  side: 1 | -1 = 1,
+): Ped | null {
+  const exit = carExitPoint(world.map, car, side);
+  if (!exit) return null;
+  const driver = spawnPedestrian(world, Math.floor(exit.x), Math.floor(exit.y), kind);
+  driver.x = exit.x;
+  driver.y = exit.y;
+  driver.heading = car.heading;
+  driver.ai!.target = { x: exit.x, y: exit.y };
+  // Cops don't run: they go after whoever the police want (see chaseSuspect).
+  if (kind === 'civilian') startPanic(world, driver, driver.ai!, { x: from.x, y: from.y }, null, PANIC_TICKS);
+  return driver;
 }
 
 /**
@@ -194,6 +227,41 @@ function trySpawn(world: World, cells: { x: number; y: number }[], kind: Exclude
 }
 
 /**
+ * A cop and the nearest player the police are after, if any is close: run after them, and arrest
+ * them once within reach (on foot, or in a car that's stopped; a moving car they just follow).
+ * Returns false when there's no one to chase.
+ */
+function chaseSuspect(world: World, ped: Ped, ai: PedestrianState, dt: number): boolean {
+  const suspect = nearestWanted(world, ped.x, ped.y, COP_CHASE_RANGE);
+  if (!suspect) return false;
+  // Thrown out of their car by a car thief: it takes them a moment to get back on their feet.
+  if (ai.waitTicks > 0) {
+    ai.waitTicks--;
+    return true;
+  }
+  Object.assign(ai, { panicTicks: 0, panicFrom: null, panicPath: null, crossing: false, lookAt: null, approach: false });
+  ai.target = { x: Math.floor(ped.x) + 0.5, y: Math.floor(ped.y) + 0.5 };
+  ai.lastDistance = FAR;
+  const car = suspect.carId === null ? undefined : world.cars.get(suspect.carId);
+  const reach = car ? CAR_MODELS[car.model].length / 2 + ARREST_REACH : PED_RADIUS * 2 + ARREST_REACH;
+  const dx = suspect.x - ped.x;
+  const dy = suspect.y - ped.y;
+  const distance = Math.hypot(dx, dy);
+  face(ped, suspect.x, suspect.y, dt);
+  if (distance <= reach) {
+    if (canArrest(world, suspect)) bust(world, suspect, ped);
+    return true;
+  }
+  const step = Math.min(RUN_SPEED * dt, distance - reach * 0.8);
+  if (step <= 0) return true;
+  const sx = (dx / distance) * step;
+  const sy = (dy / distance) * step;
+  if (!pedCollides(world.map, ped.x + sx, ped.y)) ped.x += sx;
+  if (!pedCollides(world.map, ped.x, ped.y + sy)) ped.y += sy;
+  return true;
+}
+
+/**
  * A gang member and the nearest player their gang is after, if any is close: if they can see them
  * and they're in range, aim and shoot; otherwise run towards them. Returns false when there's no
  * one to fight, so they just walk around.
@@ -247,15 +315,6 @@ function fightGrudge(world: World, ped: Ped, ai: PedestrianState, dt: number): b
   const sy = (dy / enemyDistance) * step;
   if (!pedCollides(world.map, ped.x + sx, ped.y)) ped.x += sx;
   if (!pedCollides(world.map, ped.x, ped.y + sy)) ped.y += sy;
-  return true;
-}
-
-/** Nothing solid on the straight line between two points. */
-function lineOfSight(map: BlockMap, x0: number, y0: number, x1: number, y1: number): boolean {
-  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.25);
-  for (let i = 1; i < steps; i++) {
-    if (isSolidAt(map, x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps)) return false;
-  }
   return true;
 }
 

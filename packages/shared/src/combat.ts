@@ -39,6 +39,10 @@ export type GameEvent =
   | { type: 'death'; tick: number; ownerId: number; pedId: number; killerId: number | null; cause: DamageCause; x: number; y: number }
   /** A gang is now after a player (`pedId`), who hurt one of its members (at x, y). */
   | { type: 'gangAngry'; tick: number; ownerId: number; gang: number; pedId: number; x: number; y: number }
+  /** The police are now after a player (`pedId`), at this wanted level. */
+  | { type: 'wanted'; tick: number; ownerId: number; pedId: number; level: number; x: number; y: number }
+  /** A cop (`copId`) arrested a player (`pedId`). */
+  | { type: 'busted'; tick: number; ownerId: number; pedId: number; copId: number; x: number; y: number }
   /** A car blew up; `attackerId` is who gets the credit (null for accidents). */
   | { type: 'carDestroyed'; tick: number; ownerId: number; carId: number; attackerId: number | null; x: number; y: number };
 

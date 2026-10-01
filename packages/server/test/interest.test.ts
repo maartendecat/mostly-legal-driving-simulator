@@ -54,10 +54,13 @@ test("players' deaths and wrecks reach everyone; a gang's grudge its target; ped
     { type: 'carDestroyed', ...at(60, 60), carId: 3, attackerId: 1 },
     { type: 'gangAngry', ...at(62, 62), gang: 1, pedId: me.id }, // after me, wherever it happened
     { type: 'gangAngry', ...at(12, 12), gang: 2, pedId: [...players][1]! }, // after someone else
+    { type: 'wanted', ...at(63, 63), pedId: me.id, level: 1 },
+    { type: 'wanted', ...at(12, 12), pedId: [...players][1]!, level: 1 },
+    { type: 'busted', ...at(64, 64), pedId: [...players][1]!, copId: 5 },
   ];
   assert.deepEqual(
     visibleEvents(events, viewFor(world, me.id), players, me.id).map((e) => `${e.type}@${e.x}`),
-    ['impact@12', 'death@60', 'death@13', 'carDestroyed@60', 'gangAngry@62'],
+    ['impact@12', 'death@60', 'death@13', 'carDestroyed@60', 'gangAngry@62', 'wanted@63', 'busted@64'],
   );
 });
 

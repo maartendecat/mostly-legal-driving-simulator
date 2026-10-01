@@ -7,6 +7,7 @@ export * from './map';
 export * from './mapgen';
 export * from './match';
 export * from './pedestrians';
+export * from './police';
 export * from './math';
 export * from './protocol';
 export * from './time';

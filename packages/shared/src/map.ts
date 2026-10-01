@@ -115,3 +115,12 @@ export function laneAt(map: BlockMap, cx: number, cy: number): number {
 export function isSolidAt(map: BlockMap, x: number, y: number): boolean {
   return isSolidCell(map, Math.floor(x), Math.floor(y));
 }
+
+/** Nothing solid on the straight line between two points. */
+export function lineOfSight(map: BlockMap, x0: number, y0: number, x1: number, y1: number): boolean {
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.25);
+  for (let i = 1; i < steps; i++) {
+    if (isSolidAt(map, x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps)) return false;
+  }
+  return true;
+}

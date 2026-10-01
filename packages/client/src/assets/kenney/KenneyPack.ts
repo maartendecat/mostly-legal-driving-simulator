@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Block, CAR_MODELS, type BlockMap, type Car, type CarModelId, type Ped, type PedLook, type Pickup, type WeaponId } from '@game/shared';
+import { Block, CAR_MODELS, isBusted, type BlockMap, type Car, type CarModelId, type Ped, type PedLook, type Pickup, type WeaponId } from '@game/shared';
 import type { AssetPack, EntityView, PickupViewState } from '../AssetPack';
 import { BloodPool, CarDamageEffects, WalkAnimation, carDamage, hash } from '../common';
 import { PlaceholderPack, hasDash } from '../placeholder/PlaceholderPack';
@@ -10,7 +10,7 @@ const BASE = `${import.meta.env.BASE_URL}assets/kenney/`;
 /** Which Car Kit models stand in for each of our car types; each car picks one by its id. */
 const CAR_VARIANTS: Record<CarModelId, string[]> = {
   compact: ['hatchback-sports'],
-  sedan: ['sedan', 'taxi', 'police', 'suv'],
+  sedan: ['sedan', 'taxi', 'suv'],
   sports: ['sedan-sports', 'race'],
   truck: ['truck', 'delivery', 'garbage-truck'],
 };
@@ -21,6 +21,11 @@ const GANG_CHARACTERS = ['hitman1', 'robot1', 'zombie1'];
 const COP_CHARACTER = 'manBlue';
 /** The blue shirt darkened to a police uniform's navy. */
 const COP_TINT = 0x8a9cff;
+/** Police cars (and only they) use the Car Kit's police car. */
+const POLICE_CAR = 'police';
+/** Their lights, flashing red and blue while they chase someone (switching this many times a second). */
+const SIREN_RATE = 4;
+
 const CHARACTERS = [...new Set([...Object.values(LOOK_CHARACTERS), ...GANG_CHARACTERS, COP_CHARACTER])];
 type Pose = 'stand' | 'gun' | 'machine' | 'silencer';
 const POSES: Pose[] = ['stand', 'gun', 'machine', 'silencer'];
@@ -91,7 +96,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
     const people = CHARACTERS.flatMap((c) => POSES.map((p) => `people/${c}_${p}`));
     const tiles = [...Object.values(GROUND_TILES), ...BUSHES, 'tile_129', ...Object.values(WEAPON_ICONS)].map((t) => `tiles/${t}`);
     await Promise.all([...people, ...tiles].map(loadTexture));
-    await Promise.all([...new Set(Object.values(CAR_VARIANTS).flat())].map(loadCar));
+    await Promise.all([...new Set([...Object.values(CAR_VARIANTS).flat(), POLICE_CAR])].map(loadCar));
     this.facade = canvasTexture(64, drawFacade);
     this.roof = canvasTexture(64, drawRoof);
   }
@@ -174,7 +179,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
   override createCarView(car: Car): EntityView<Car> {
     const m = CAR_MODELS[car.model];
     const variants = CAR_VARIANTS[car.model];
-    const template = this.cars.get(variants[car.id % variants.length]!)!;
+    const template = this.cars.get(car.police ? POLICE_CAR : variants[car.id % variants.length]!)!;
     const group = new THREE.Group();
 
     // Stretch the model to our car's exact footprint; height follows the width.
@@ -193,6 +198,15 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
 
     const effects = new CarDamageEffects(m, template.size.z * widthScale + 0.1);
     group.add(effects.object);
+    // Police lights: a red and a blue one side by side on the roof, glowing while chasing.
+    const lights = [0xff2020, 0x2060ff].map((color, i) => {
+      const light = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.06), new THREE.MeshBasicMaterial({ color }));
+      light.position.set(-0.05, (i === 0 ? 1 : -1) * m.width * 0.22, template.size.z * widthScale + 0.04);
+      light.visible = false;
+      group.add(light);
+      return light;
+    });
+    let sirenTime = 0;
     const white = new THREE.Color(0xffffff);
     const burnt = new THREE.Color(0x1c1c1c);
     return {
@@ -201,9 +215,13 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
         const damage = carDamage(state);
         for (const material of materials) material.color.copy(white).lerp(burnt, state.wrecked ? 0.85 : damage * 0.55);
         effects.update(dt, state);
+        sirenTime = state.siren ? sirenTime + dt : 0;
+        const phase = Math.floor(sirenTime * SIREN_RATE) % 2;
+        lights.forEach((light, i) => (light.visible = state.siren && phase === i));
       },
       dispose: () => {
         materials.forEach((material) => material.dispose());
+        lights.forEach((light) => (light.geometry.dispose(), (light.material as THREE.Material).dispose()));
         effects.object.traverse((obj) => obj instanceof THREE.Mesh && (obj.geometry.dispose(), (obj.material as THREE.Material).dispose()));
       },
     };
@@ -252,6 +270,8 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
         body.rotation.z = dead ? Math.PI / 2 : sway;
         material.color.copy(tint).multiplyScalar(dead ? 0.44 : 1);
         ring.visible = !dead && state.kind === 'player';
+        // Arrested: taken away until they're back.
+        group.visible = !isBusted(state);
         blood.update(dt, dead);
       },
       dispose: () => {

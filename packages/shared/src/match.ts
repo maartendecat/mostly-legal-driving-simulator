@@ -110,6 +110,7 @@ export class Match {
     for (const event of world.events) {
       if (event.type === 'death') this.scoreDeath(world, event.pedId, event.killerId);
       else if (event.type === 'carDestroyed' && event.attackerId !== null) this.addPoints(event.attackerId, POINTS.carDestroyed);
+      else if (event.type === 'busted') this.scores.get(event.pedId) && this.scores.get(event.pedId)!.deaths++; // counts as a death, nobody's frag
     }
     if (this.state.mode === 'tag' && world.itPedId !== null) {
       const it = world.peds.get(world.itPedId);
