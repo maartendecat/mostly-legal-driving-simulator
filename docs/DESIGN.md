@@ -377,15 +377,16 @@ levels and the response up to three stars; SWAT, roadblocks and the army are to 
 - **Cops shooting** works like gang members: half a second to aim, a shot every 1.25 s, up to
   0.16 rad off, from up to 10 blocks (not when the suspect is within 4 blocks and can be grabbed).
   Players killed by the police died in an accident: a death, nobody's frag.
-- **Arrest:** a cop who reaches a suspect on foot, or in a car going under 1 block/s, holds on for
-  a second (`beingArrested` shows it: "A cop has got you"). Getting out of reach (walking off,
-  driving off) breaks free and shakes the cop off for a second; staying put: BUSTED (`busted`
+- **Arrest:** a cop who reaches a suspect on foot, or in a car going under 1 block/s, first needs
+  a second to get hold of them, then cuffs them for a second (`beingArrested` shows the cuffing:
+  "A cop has got you"). Getting out of reach (walking off, driving off) breaks free; once the
+  cuffing has started that also shakes the cop off for a second. Staying put: BUSTED (`busted`
   event, sent to everyone). Out of their car, weapons gone, taken away (not drawn, not a body) and
   back after 3 s like a respawn. It counts as a death on the scoreboard (nobody's frag) and costs
   250 points in Points mode. Cops thrown out of their stolen police car need a second to get up, too.
-- **Measured** (6 cities each, a player standing still): 1 star: busted after 5–21 s, or nobody
-  close enough came; 2 stars: busted after 4.5–9.5 s; 3 stars: busted or shot after 4–7 s; 4 stars:
-  shot after 6–9 s. A full city still costs about 0.45 ms per tick.
+- **Measured** (6 cities each, a player standing still): 1 star: busted after 6–22 s, or nobody
+  close enough came; 2 stars: busted after 5.5–10.5 s; 3 stars: busted or shot after 5–8 s; 4
+  stars: shot after 6–9 s. A full city costs about 0.5 ms per tick.
 - **Network:** chasing is decided on the server only (traffic state isn't sent); clients see
   `siren`, `wanted` and `beingArrested`.
 
@@ -564,6 +565,7 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 | Heat and stars, minor crimes only when seen | GTA2's model; small crimes add up, attacks on the police always count (POLICE.md) |
 | Killing players is no crime | The police shouldn't punish playing the deathmatch (decided after the analysis) |
 | Arrest takes a second you can break away from | Escapes possible, arrests deliberate (decided after the analysis) |
+| Plus a second for the cop to get hold of you | Playtest feedback: arrests came too quickly |
 | Busted = taken away, back after 3 s, weapons gone | Like a respawn, but without a body |
 | Traffic drivers exist only when they get out | No ped to carry around in every traffic car; spawned at the door when needed |
 | Gangs: fixed turf plus per-player grudges | Like GTA2's gang respect, but simple: hurt one, the gang is after you for a while |

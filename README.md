@@ -47,8 +47,8 @@ hurt one of them and the whole gang is after you for a while. Cops patrol the ci
 police cars drive around (`POLICE_CARS=2`). Crimes the police see (shooting, running people
 over, stealing cars, killing) and anything against the police earn you wanted stars: one star and
 the police nearby come after you, two and every police car in the city joins in and cops shoot
-back, three and they shoot on sight and ram you. A cop who gets hold of you arrests you after a
-second unless you break free: BUSTED, weapons gone, back elsewhere a moment later (−250 in Points
+back, three and they shoot on sight and ram you. A cop who reaches you needs a second to get hold
+of you and another to cuff you; get away in time and you're free: BUSTED, weapons gone, back elsewhere a moment later (−250 in Points
 mode). Out of their sight the stars go one by one; cop bribe crates (gold star) take one off.
 Killing other players is no crime. Rooms can have the police with or without the army, or none
 (`POLICE=on|noarmy|off`). Blown-up cars keep burning for a while,

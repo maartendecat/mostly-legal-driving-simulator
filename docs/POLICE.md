@@ -104,7 +104,7 @@ normal police and removed again (out of sight) once nobody's wanted.
 **Arrests** stay possible up to level 3: a cop who reaches you while you're on foot or stopped.
 From level 4 they shoot to kill rather than arrest. Arresting takes **one second of contact**
 ("cuffing") during which you can still break away by moving (or driving off), instead of today's
-instant arrest. That makes escapes possible and arrests feel deliberate (decided, §9).
+instant arrest; after playtesting, the cop also needs a second to get hold of you first. That makes escapes possible and arrests feel deliberate (decided, §9).
 
 **Police shooting** reuses the gang members' shooting: aim for half a second, then fire, with
 some inaccuracy. Level 2–3 cops use pistols, SWAT and soldiers machine guns. Police bullets

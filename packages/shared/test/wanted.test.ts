@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   Block,
+  ARREST_DELAY_TICKS,
   COOL_OFF_TICKS,
   CUFF_TICKS,
   DEFAULT_MATCH_SETTINGS,
@@ -174,7 +175,7 @@ test('one star: cops only try to arrest; two: they shoot back at a shooter; thre
   assert.ok(shotsAt(3, false) > 0);
 });
 
-test('an arrest takes a second of holding on; walking away in time breaks free', () => {
+test('an arrest takes a moment to get hold, then a second of cuffing; walking away in time breaks free', () => {
   const { world, player } = street();
   copNearby(world, player, 3).ai!.waitTicks = 0;
   reportCrime(world, player.id, 'assaultPolice');
@@ -185,6 +186,7 @@ test('an arrest takes a second of holding on; walking away in time breaks free',
     if (bustedAt < 0 && isBusted(player)) bustedAt = world.tick;
   });
   assert.ok(bustedAt > 0, 'standing still: busted');
+  assert.ok(bustedAt >= ARREST_DELAY_TICKS + CUFF_TICKS, `not before two seconds of contact (${bustedAt} ticks)`);
   assert.ok(most > 0.9, 'after being held for (nearly) the whole second');
 
   const second = street();

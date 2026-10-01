@@ -7,6 +7,7 @@ import {
   NO_INPUT,
   PED_MAX_HEALTH,
   COOL_OFF_TICKS,
+  ARREST_DELAY_TICKS,
   CUFF_TICKS,
   LEVEL_DROP_TICKS,
   cloneWorld,
@@ -109,7 +110,7 @@ test('standing still in a stolen police car is asking for it', () => {
   police.vx = 0;
   const player = spawnPed(world, police.x, police.y + 0.6);
   stepWorld(world, new Map([[player.id, { ...NO_INPUT, enter: true }]]));
-  run(world, secondsToTicks(2));
+  run(world, secondsToTicks(3));
   assert.ok(isBusted(player));
 });
 
@@ -156,7 +157,7 @@ test('cops cannot arrest someone driving off; once the car stops, they can', () 
   assert.equal(player.respawnAt, null);
   assert.ok(Math.hypot(cop.x - car.x, cop.y - car.y) < 1.5, 'the cop keeps up');
   car.vx = 0;
-  run(world, CUFF_TICKS + 30);
+  run(world, ARREST_DELAY_TICKS + CUFF_TICKS + 30);
   assert.ok(isBusted(player));
   assert.equal(car.driverId, null, 'taken out of the car');
 });
@@ -215,7 +216,7 @@ test('the busted are taken away, not left lying there: nobody stares at them', (
   spawnPedestrian(world, 8, 4, 'cop');
   const passerBy = spawnPedestrian(world, 15, 4);
   reportCrime(world, player.id, 'assaultPolice');
-  run(world, secondsToTicks(3));
+  run(world, secondsToTicks(4));
   assert.ok(isBusted(player));
   assert.deepEqual(passerBy.ai!.seenBodies, []);
 });

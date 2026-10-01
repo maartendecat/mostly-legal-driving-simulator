@@ -100,7 +100,9 @@ const COP_CHASE_RANGE = 15;
 const COP_CHASE_RANGE_WIDE = 25;
 /** ...and arrest them from this far beyond touching... */
 const ARREST_REACH = 0.25;
-/** ...holding on to them for this long (getting away within that time breaks free)... */
+/** ...after a moment to get hold of them... */
+export const ARREST_DELAY_TICKS = secondsToTicks(1);
+/** ...and then cuffing them for this long (getting away within all that time breaks free)... */
 export const CUFF_TICKS = secondsToTicks(1);
 /** ...after which a cop who's been shaken off needs a moment. */
 const BREAK_AWAY_STUN_TICKS = secondsToTicks(1);
@@ -262,22 +264,26 @@ function chaseSuspect(world: World, ped: Ped, ai: PedestrianState, dt: number): 
   const distance = Math.hypot(dx, dy);
   const arrestable = canArrest(world, suspect);
 
-  // Within reach: holding on to them for a second while cuffing; getting out of reach (or driving
-  // off) breaks free, and shakes the cop off for a moment.
+  // Within reach: a moment to grab hold, then a second of cuffing; getting out of reach (or driving
+  // off) breaks free, and once the cuffing had started it shakes the cop off for a moment.
   if (distance <= reach && arrestable) {
     face(ped, suspect.x, suspect.y, dt);
     ai.cuffTicks++;
-    suspect.beingArrested = Math.max(suspect.beingArrested, ai.cuffTicks / CUFF_TICKS);
-    if (ai.cuffTicks >= CUFF_TICKS) {
+    const cuffing = ai.cuffTicks - ARREST_DELAY_TICKS;
+    if (cuffing > 0) suspect.beingArrested = Math.max(suspect.beingArrested, cuffing / CUFF_TICKS);
+    if (cuffing >= CUFF_TICKS) {
       ai.cuffTicks = 0;
       bust(world, suspect, ped);
     }
     return true;
   }
   if (ai.cuffTicks > 0) {
+    const cuffingStarted = ai.cuffTicks > ARREST_DELAY_TICKS;
     ai.cuffTicks = 0;
-    ai.waitTicks = BREAK_AWAY_STUN_TICKS;
-    return true;
+    if (cuffingStarted) {
+      ai.waitTicks = BREAK_AWAY_STUN_TICKS;
+      return true;
+    }
   }
 
   // Shooting (when the police do that, see policeMayShoot), unless they're close enough to grab.
