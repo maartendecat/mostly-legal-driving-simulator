@@ -1,6 +1,6 @@
 import { fireWeapon } from './combat';
 import { isDead } from './damage';
-import { bust, canArrest, nearestWanted } from './police';
+import { bust, canArrest, nearestWanted, policeMayShoot } from './police';
 import { GANGS, GANG_NOTICE_RANGE, GANG_SHOOT_RANGE, expireGrudges, turfAt } from './gangs';
 import { Block, DIRECTIONS, Lane, kindAt, laneAt, lineOfSight, type BlockMap } from './map';
 import { nextRandom, randomInt, randomPick, wrapAngle } from './math';
@@ -41,8 +41,10 @@ export interface PedestrianState {
   stuckTicks: number;
   /** ...measured from tick to tick (a parked car pushing them back undoes each step after it's made). */
   lastDistance: number;
-  /** A gang member with someone in their sights: ticks spent aiming so far. */
+  /** A gang member or cop with someone in their sights: ticks spent aiming so far. */
   aimTicks: number;
+  /** A cop arresting someone: ticks spent cuffing them so far (see CUFF_TICKS). */
+  cuffTicks: number;
   /** The bodies they've already noticed (the most recent few), so each one only startles them once. */
   seenBodies: number[];
   /** Something they're staring at while standing still (a body), or walking over to (`approach`). */
@@ -74,12 +76,12 @@ const SPAWN_DISTANCE_FROM_PLAYERS = 14;
 /** Civilians' looks, weighted by how common they are, and how fast each walks (relative). */
 const CIVILIAN_LOOKS: PedLook[] = ['man', 'man', 'man', 'woman', 'woman', 'woman', 'youth', 'youth', 'worker', 'worker', 'elder'];
 const PACE: Record<PedLook, number> = { man: 1, woman: 1, youth: 1.15, worker: 1, elder: 0.6 };
-/** A gang member takes this long to aim before the first shot... */
-const GANG_AIM_TICKS = secondsToTicks(0.5);
+/** Gang members and cops who shoot take this long to aim before the first shot... */
+const AIM_TICKS = secondsToTicks(0.5);
 /** ...then fires a little more than once a second (slower than a player can)... */
-const GANG_SHOT_TICKS = secondsToTicks(1.25);
+const SHOT_TICKS = secondsToTicks(1.25);
 /** ...and not very accurately: up to this far off (radians). */
-const GANG_AIM_ERROR = 0.16;
+const AIM_ERROR = 0.16;
 /** Police blue, for asset packs that colour people. */
 export const COP_COLOR = 0x1e40af;
 /** Bodies this close (in blocks, in plain sight) get noticed by passers-by. */
@@ -93,10 +95,18 @@ const STARE_EXTRA_TICKS = secondsToTicks(2);
 const COP_INSPECT_DISTANCE = 1;
 const COP_INSPECT_TICKS = secondsToTicks(4);
 const SEEN_BODIES_REMEMBERED = 4;
-/** Cops run after a wanted player this close (in blocks)... */
+/** Cops run after a one-star suspect this close (in blocks); from two stars, from further away... */
 const COP_CHASE_RANGE = 15;
-/** ...and arrest them from this far beyond touching. */
+const COP_CHASE_RANGE_WIDE = 25;
+/** ...and arrest them from this far beyond touching... */
 const ARREST_REACH = 0.25;
+/** ...holding on to them for this long (getting away within that time breaks free)... */
+export const CUFF_TICKS = secondsToTicks(1);
+/** ...after which a cop who's been shaken off needs a moment. */
+const BREAK_AWAY_STUN_TICKS = secondsToTicks(1);
+/** Cops who may shoot do so from this far, unless the suspect is this close and can be grabbed. */
+const COP_SHOOT_RANGE = 10;
+const COP_GRAB_DISTANCE = 4;
 /** A distance further than any target, for "no progress measured yet". */
 const FAR = 1e6;
 
@@ -122,13 +132,15 @@ export function spawnPedestrian(world: World, cx: number, cy: number, kind: Excl
   }
   const dir = randomInt(world, 4);
   ped.heading = DIRECTIONS[dir]!.heading;
-  ped.ai = { dir, target: { x: cx + 0.5, y: cy + 0.5 }, waitTicks: 0, panicTicks: 0, panicFrom: null, panicPath: null, crossing: false, stuckTicks: 0, lastDistance: FAR, aimTicks: 0, seenBodies: [], lookAt: null, approach: false };
+  ped.ai = { dir, target: { x: cx + 0.5, y: cy + 0.5 }, waitTicks: 0, panicTicks: 0, panicFrom: null, panicPath: null, crossing: false, stuckTicks: 0, lastDistance: FAR, aimTicks: 0, cuffTicks: 0, seenBodies: [], lookAt: null, approach: false };
   return ped;
 }
 
 /** Moves every pedestrian for one tick. Runs after projectiles, so it sees this tick's events. */
 export function stepPedestrians(world: World, dt: number): void {
   expireGrudges(world);
+  // Cops cuffing someone set this again below; it's only for showing on screen.
+  for (const ped of world.peds.values()) if (ped.beingArrested > 0) ped.beingArrested = 0;
   // (Not those who were arrested and taken away: they're not lying there.)
   const bodies = [...world.peds.values()].filter((p) => isDead(p) && p.health <= 0);
   for (const ped of world.peds.values()) {
@@ -232,9 +244,10 @@ function trySpawn(world: World, cells: { x: number; y: number }[], kind: Exclude
  * Returns false when there's no one to chase.
  */
 function chaseSuspect(world: World, ped: Ped, ai: PedestrianState, dt: number): boolean {
-  const suspect = nearestWanted(world, ped.x, ped.y, COP_CHASE_RANGE);
-  if (!suspect) return false;
-  // Thrown out of their car by a car thief: it takes them a moment to get back on their feet.
+  const suspect = nearestWanted(world, ped.x, ped.y, COP_CHASE_RANGE_WIDE);
+  if (!suspect || (suspect.wanted < 2 && Math.hypot(suspect.x - ped.x, suspect.y - ped.y) > COP_CHASE_RANGE)) return false;
+  // Thrown out of their car by a car thief, or shaken off by a suspect breaking away: it takes them a
+  // moment to get back on their feet.
   if (ai.waitTicks > 0) {
     ai.waitTicks--;
     return true;
@@ -247,17 +260,66 @@ function chaseSuspect(world: World, ped: Ped, ai: PedestrianState, dt: number): 
   const dx = suspect.x - ped.x;
   const dy = suspect.y - ped.y;
   const distance = Math.hypot(dx, dy);
-  face(ped, suspect.x, suspect.y, dt);
-  if (distance <= reach) {
-    if (canArrest(world, suspect)) bust(world, suspect, ped);
+  const arrestable = canArrest(world, suspect);
+
+  // Within reach: holding on to them for a second while cuffing; getting out of reach (or driving
+  // off) breaks free, and shakes the cop off for a moment.
+  if (distance <= reach && arrestable) {
+    face(ped, suspect.x, suspect.y, dt);
+    ai.cuffTicks++;
+    suspect.beingArrested = Math.max(suspect.beingArrested, ai.cuffTicks / CUFF_TICKS);
+    if (ai.cuffTicks >= CUFF_TICKS) {
+      ai.cuffTicks = 0;
+      bust(world, suspect, ped);
+    }
     return true;
   }
+  if (ai.cuffTicks > 0) {
+    ai.cuffTicks = 0;
+    ai.waitTicks = BREAK_AWAY_STUN_TICKS;
+    return true;
+  }
+
+  // Shooting (when the police do that, see policeMayShoot), unless they're close enough to grab.
+  if (policeMayShoot(world, suspect) && !(arrestable && distance < COP_GRAB_DISTANCE) && shootAt(world, ped, ai, suspect, distance, COP_SHOOT_RANGE, dt)) {
+    return true;
+  }
+  ai.aimTicks = 0;
+  face(ped, suspect.x, suspect.y, dt);
   const step = Math.min(RUN_SPEED * dt, distance - reach * 0.8);
   if (step <= 0) return true;
   const sx = (dx / distance) * step;
   const sy = (dy / distance) * step;
   if (!pedCollides(world.map, ped.x + sx, ped.y)) ped.x += sx;
   if (!pedCollides(world.map, ped.x, ped.y + sy)) ped.y += sy;
+  return true;
+}
+
+/**
+ * Aims at `target` and fires when ready (gang members and cops alike: they take a moment to aim,
+ * fire about once a second, and not very accurately). False if the target is out of `range` or
+ * out of sight; then they're not aiming either.
+ */
+function shootAt(world: World, ped: Ped, ai: PedestrianState, target: Ped, distance: number, range: number, dt: number): boolean {
+  if (distance > range || !lineOfSight(world.map, ped.x, ped.y, target.x, target.y)) {
+    ai.aimTicks = 0;
+    return false;
+  }
+  const aim = Math.atan2(target.y - ped.y, target.x - ped.x);
+  const turn = wrapAngle(aim - ped.heading);
+  const maxTurn = TURN_RATE * dt;
+  ped.heading = wrapAngle(ped.heading + Math.max(-maxTurn, Math.min(maxTurn, turn)));
+  if (Math.abs(turn) > 0.2) return true;
+  if (ai.aimTicks < AIM_TICKS) {
+    ai.aimTicks++;
+    return true;
+  }
+  if (ped.fireCooldown === 0 && ped.weapon !== null) {
+    ped.heading = wrapAngle(aim + (nextRandom(world) * 2 - 1) * AIM_ERROR);
+    fireWeapon(world, ped);
+    ped.fireCooldown = Math.max(ped.fireCooldown, SHOT_TICKS);
+    ped.heading = aim;
+  }
   return true;
 }
 
@@ -289,27 +351,9 @@ function fightGrudge(world: World, ped: Ped, ai: PedestrianState, dt: number): b
 
   const dx = enemy.x - ped.x;
   const dy = enemy.y - ped.y;
-  const aim = Math.atan2(dy, dx);
-  if (enemyDistance <= GANG_SHOOT_RANGE && lineOfSight(world.map, ped.x, ped.y, enemy.x, enemy.y)) {
-    const turn = wrapAngle(aim - ped.heading);
-    const maxTurn = TURN_RATE * dt;
-    ped.heading = wrapAngle(ped.heading + Math.max(-maxTurn, Math.min(maxTurn, turn)));
-    if (Math.abs(turn) > 0.2) return true;
-    if (ai.aimTicks < GANG_AIM_TICKS) {
-      ai.aimTicks++;
-      return true;
-    }
-    if (ped.fireCooldown === 0 && ped.weapon !== null) {
-      ped.heading = wrapAngle(aim + (nextRandom(world) * 2 - 1) * GANG_AIM_ERROR);
-      fireWeapon(world, ped);
-      ped.fireCooldown = Math.max(ped.fireCooldown, GANG_SHOT_TICKS);
-      ped.heading = aim;
-    }
-    return true;
-  }
+  if (shootAt(world, ped, ai, enemy, enemyDistance, GANG_SHOOT_RANGE, dt)) return true;
   // Out of range or out of sight: run at them (sliding along walls).
-  ai.aimTicks = 0;
-  ped.heading = aim;
+  ped.heading = Math.atan2(dy, dx);
   const step = RUN_SPEED * dt;
   const sx = (dx / enemyDistance) * step;
   const sy = (dy / enemyDistance) * step;

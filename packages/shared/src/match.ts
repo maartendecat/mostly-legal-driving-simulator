@@ -45,6 +45,8 @@ export const POINTS = {
   pedestrian: 10,
   gangster: 20,
   cop: 50,
+  /** Getting arrested by the police. */
+  busted: -250,
 } as const;
 
 /** What clients need to know about the match; sent in every snapshot. */
@@ -110,7 +112,7 @@ export class Match {
     for (const event of world.events) {
       if (event.type === 'death') this.scoreDeath(world, event.pedId, event.killerId);
       else if (event.type === 'carDestroyed' && event.attackerId !== null) this.addPoints(event.attackerId, POINTS.carDestroyed);
-      else if (event.type === 'busted') this.scores.get(event.pedId) && this.scores.get(event.pedId)!.deaths++; // counts as a death, nobody's frag
+      else if (event.type === 'busted') this.scoreBusted(event.pedId);
     }
     if (this.state.mode === 'tag' && world.itPedId !== null) {
       const it = world.peds.get(world.itPedId);
@@ -140,6 +142,14 @@ export class Match {
     killer.points += suicide ? POINTS.suicide : POINTS.kill;
     // Tag: kill "it" and you're "it". Dying any other way, "it" stays "it".
     if (world.itPedId === victimId && !suicide) world.itPedId = killerId;
+  }
+
+  /** Busted: a death (nobody's frag), and in Points mode it costs points too. */
+  private scoreBusted(pedId: number): void {
+    const score = this.scores.get(pedId);
+    if (!score) return;
+    score.deaths++;
+    if (this.state.mode === 'points') score.points += POINTS.busted;
   }
 
   private addPoints(pedId: number, points: number): void {

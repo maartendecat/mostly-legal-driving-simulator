@@ -9,6 +9,7 @@ import {
   secondsToTicks,
   type MatchSettings,
   type RoomSettings,
+  type WorldOptions,
 } from '@game/shared';
 import { GameRoom, send, type Player } from './GameRoom';
 import { staticFileHandler } from './staticFiles';
@@ -24,18 +25,11 @@ export interface GameServerOptions {
   maxRooms?: number;
   /** Folder with the built client to serve over HTTP on the same port (production). */
   staticDir?: string;
-  /** Traffic cars per room (default: none). */
-  traffic?: number;
-  /** Pedestrians per room (default: none). */
-  pedestrians?: number;
-  /** Members per gang, per room (default: none). */
-  gangMembers?: number;
-  /** Cops per room (default: none). */
-  cops?: number;
-  /** Police cars per room, besides the other traffic (default: none). */
-  policeCars?: number;
-  /** Fire trucks per room that can be out at once (default: none). */
-  fireTrucks?: number;
+  /**
+   * Who lives in each room's city: traffic, pedestrians, gangs, police, fire brigade (default:
+   * nobody). Rooms players create can choose their own police setting.
+   */
+  city?: WorldOptions;
 }
 
 const DEFAULT_EMPTY_ROOM_TICKS = secondsToTicks(60);
@@ -72,12 +66,7 @@ export class GameServer {
       seed: options.seed,
       match: { ...DEFAULT_MATCH_SETTINGS, ...options.match },
       permanent: true,
-      traffic: options.traffic ?? 0,
-      pedestrians: options.pedestrians ?? 0,
-      gangMembers: options.gangMembers ?? 0,
-      cops: options.cops ?? 0,
-      policeCars: options.policeCars ?? 0,
-      fireTrucks: options.fireTrucks ?? 0,
+      city: options.city ?? {},
     });
     // One port for everything: the game page (if built), a health check, and the game connections.
     const serveStatic = options.staticDir ? staticFileHandler(options.staticDir) : null;
@@ -188,12 +177,7 @@ export class GameServer {
       seed: randomBytes(4).readUInt32LE(0),
       match: { ...DEFAULT_MATCH_SETTINGS, modes: [settings.mode], scoreLimits, timeLimitTicks },
       permanent: false,
-      traffic: this.options.traffic ?? 0,
-      pedestrians: this.options.pedestrians ?? 0,
-      gangMembers: this.options.gangMembers ?? 0,
-      cops: this.options.cops ?? 0,
-      policeCars: this.options.policeCars ?? 0,
-      fireTrucks: this.options.fireTrucks ?? 0,
+      city: { ...this.options.city, ...(settings.police ? { police: settings.police } : {}) },
     });
   }
 

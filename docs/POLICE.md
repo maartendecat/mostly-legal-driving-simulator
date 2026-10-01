@@ -166,14 +166,17 @@ What this needs that we don't have:
 
 In steps, each one playable and tested on its own:
 
-1. **Heat and levels:** the crime list, minor crimes only when seen, heat draining when unseen,
+1. ✅ **Heat and levels:** the crime list, minor crimes only when seen, heat draining when unseen,
    stars in the HUD and next to name tags, a cuffing delay for arrests, the room option, cop
-   bribe crates, and −250 points when busted in Points mode. Responses for levels 1–3: extra police cars, cops shooting, police cars ramming.
+   bribe crates, and −250 points when busted in Points mode. Responses for levels 1–3: extra
+   police cars, cops shooting, police cars ramming. (Built; see DESIGN.md §12 for the details as
+   built.)
 2. **Roadblocks and SWAT:** roadblocks at level 3, SWAT vans at levels 4–5, smarter chasing
    (avoiding other cars).
 3. **The army on the ground:** mass in car collisions, the tank with its turret, soldiers, and
    escalation by time.
 4. **The helicopter:** flying entities end to end (simulation, network, drawing).
+
 Steps 1 and 2 are about as big as the gangs were. Steps 3 and 4 are bigger, mostly because of
 the new physics and the new entity type.
 

@@ -1,7 +1,8 @@
 import { damageCar, damagePed, explode, isDead, type DamageCause } from './damage';
 import type { PlayerInput } from './input';
 import { isSolidAt } from './map';
-import { secondsToTicks } from './time';
+import { bribePolice, reportCrime } from './police';
+import { TICK_RATE, secondsToTicks } from './time';
 import { WEAPONS, WEAPON_IDS, type ProjectileKind, type WeaponId } from './weapons';
 import { PED_RADIUS, carContainsPoint, type Car, type Ped, type World } from './world';
 
@@ -18,10 +19,15 @@ export interface Projectile {
   ticksLeft: number;
 }
 
-/** A weapon lying on the ground. It's taken when a ped on foot walks over it, then respawns. */
+/**
+ * A crate lying on the ground: a weapon, or a cop bribe (one wanted star off, see police.ts). It's
+ * taken when a player on foot walks over it, then respawns.
+ */
 export interface Pickup {
   id: number;
-  weapon: WeaponId;
+  kind: 'weapon' | 'bribe';
+  /** The weapon in a weapon crate; null for a bribe. */
+  weapon: WeaponId | null;
   x: number;
   y: number;
   /** Tick from which the pickup can be taken; it's hidden before that. */
@@ -48,6 +54,7 @@ export type GameEvent =
 
 export const PICKUP_RADIUS = 0.45;
 const PICKUP_RESPAWN_TICKS = secondsToTicks(10);
+const BRIBE_RESPAWN_TICKS = secondsToTicks(60);
 /** Where a shot starts, measured from the ped's edge along its heading. */
 const MUZZLE_GAP = 0.15;
 /** Projectiles move in a few small steps per tick so fast bullets can't skip past thin things. */
@@ -62,7 +69,13 @@ export function isPickupAvailable(world: World, pickup: Pickup): boolean {
 }
 
 export function spawnPickup(world: World, weapon: WeaponId, x: number, y: number): Pickup {
-  const pickup: Pickup = { id: world.nextId++, weapon, x, y, availableAt: 0 };
+  const pickup: Pickup = { id: world.nextId++, kind: 'weapon', weapon, x, y, availableAt: 0 };
+  world.pickups.set(pickup.id, pickup);
+  return pickup;
+}
+
+export function spawnBribe(world: World, x: number, y: number): Pickup {
+  const pickup: Pickup = { id: world.nextId++, kind: 'bribe', weapon: null, x, y, availableAt: 0 };
   world.pickups.set(pickup.id, pickup);
   return pickup;
 }
@@ -111,6 +124,8 @@ export function fireWeapon(world: World, ped: Ped): void {
   world.projectiles.set(projectile.id, projectile);
 
   ped.fireCooldown = weapon.cooldownTicks;
+  // Shooting is a crime where the police can see it: heat per second of firing.
+  if (ped.kind === 'player') reportCrime(world, ped.id, 'shooting', weapon.cooldownTicks / TICK_RATE);
   ped.ammo[ped.weapon] = ammo - 1;
   if (ammo - 1 === 0) cycleWeapon(ped, 1);
 }
@@ -167,17 +182,32 @@ export function canPickUpWeapons(world: World, ped: Ped): boolean {
 export function collectPickups(world: World): void {
   for (const pickup of world.pickups.values()) {
     if (!isPickupAvailable(world, pickup)) continue;
-    const weapon = WEAPONS[pickup.weapon];
+    if (pickup.kind === 'bribe') {
+      collectBribe(world, pickup);
+      continue;
+    }
+    const weapon = WEAPONS[pickup.weapon!];
     for (const ped of world.peds.values()) {
       if (ped.carId !== null || isDead(ped) || Math.hypot(ped.x - pickup.x, ped.y - pickup.y) > PICKUP_RADIUS) continue;
       if (!canPickUpWeapons(world, ped)) continue;
-      const ammo = ped.ammo[pickup.weapon] ?? 0;
+      const ammo = ped.ammo[pickup.weapon!] ?? 0;
       if (ammo >= weapon.maxAmmo) continue;
-      ped.ammo[pickup.weapon] = Math.min(ammo + weapon.pickupAmmo, weapon.maxAmmo);
+      ped.ammo[pickup.weapon!] = Math.min(ammo + weapon.pickupAmmo, weapon.maxAmmo);
       if (ped.weapon === null) ped.weapon = pickup.weapon;
       pickup.availableAt = world.tick + PICKUP_RESPAWN_TICKS;
       break;
     }
+  }
+}
+
+/** A cop bribe is only taken by a player the police are after (so it's there when it's needed). */
+function collectBribe(world: World, pickup: Pickup): void {
+  for (const ped of world.peds.values()) {
+    if (ped.kind !== 'player' || ped.wanted === 0 || ped.carId !== null || isDead(ped)) continue;
+    if (Math.hypot(ped.x - pickup.x, ped.y - pickup.y) > PICKUP_RADIUS) continue;
+    bribePolice(world, ped);
+    pickup.availableAt = world.tick + BRIBE_RESPAWN_TICKS;
+    return;
   }
 }
 

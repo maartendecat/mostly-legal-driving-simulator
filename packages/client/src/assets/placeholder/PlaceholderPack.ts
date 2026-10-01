@@ -4,7 +4,6 @@ import {
   CAR_MODELS,
   PED_RADIUS,
   RoadMarking,
-  isBusted,
   type BlockMap,
   type Car,
   type GameEvent,
@@ -190,8 +189,6 @@ export class PlaceholderPack implements AssetPack {
     return {
       object: group,
       update: (dt, state) => {
-        // Arrested: taken away until they're back.
-        group.visible = !isBusted(state);
         const dead = state.respawnAt !== null;
         // Feet step out while walking, and the body sways along. Dead: flat on the ground.
         figure.rotation.z = walk.update(dt, group.position.x, group.position.y, group.rotation.z, !dead);
@@ -220,7 +217,8 @@ export class PlaceholderPack implements AssetPack {
 
   createPickupView(pickup: Pickup): EntityView<PickupViewState> {
     const group = new THREE.Group();
-    const color = WEAPON_COLORS[pickup.weapon];
+    // Cop bribes: police blue.
+    const color = pickup.weapon ? WEAPON_COLORS[pickup.weapon] : 0x2f6bff;
     const glow = new THREE.Mesh(
       new THREE.CircleGeometry(0.3, 24),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35 }),

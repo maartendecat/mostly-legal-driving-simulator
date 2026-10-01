@@ -44,10 +44,14 @@ stroll the pavements, cross the road when it's clear, and run for it when there'
 comes at them. Coming across a body they stop and stare, or hurry away; cops come over for a look.
 Each gang (The Suits, The Lab Rats, The Undead) hangs around its own turf, armed:
 hurt one of them and the whole gang is after you for a while. Cops patrol the city, and a couple of
-police cars drive around (`POLICE_CARS=2`). Ram a police car (or hurt a cop, or steal their car)
-and the police are after you: police cars give chase with lights flashing, and once you stop, cops
-jump out to arrest you. BUSTED: your weapons are gone and you're back elsewhere a moment later.
-Stay out of their sight for 30 seconds and they give up. Blown-up cars keep burning for a while,
+police cars drive around (`POLICE_CARS=2`). Crimes the police see (shooting, running people
+over, stealing cars, killing) and anything against the police earn you wanted stars: one star and
+the police nearby come after you, two and every police car in the city joins in and cops shoot
+back, three and they shoot on sight and ram you. A cop who gets hold of you arrests you after a
+second unless you break free: BUSTED, weapons gone, back elsewhere a moment later (−250 in Points
+mode). Out of their sight the stars go one by one; cop bribe crates (gold star) take one off.
+Killing other players is no crime. Rooms can have the police with or without the army, or none
+(`POLICE=on|noarmy|off`). Blown-up cars keep burning for a while,
 and a fire truck comes (lights flashing) to put the fire out with its water cannon, then drives off
 again (`FIRE_TRUCKS=2`: how many can be out at once).
 
@@ -97,7 +101,7 @@ With Fly.io, for example: `fly launch` (it finds the Dockerfile; internal port 8
 - Rooms live in the server's memory: run exactly **one** instance, and a restart ends all games.
 - `GET /healthz` returns `{ ok, rooms, players }` for health checks.
 - The same environment variables apply (`MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `TRAFFIC`,
-  `PEDESTRIANS`, `GANG_MEMBERS`, `COPS`, `POLICE_CARS`, `FIRE_TRUCKS`, `SEED`, `PORT`).
+  `PEDESTRIANS`, `GANG_MEMBERS`, `COPS`, `POLICE_CARS`, `FIRE_TRUCKS`, `POLICE`, `SEED`, `PORT`).
 - After joining a room, the address bar is an invite link (`…/#room=abc123`): send it to friends
   and they land in the same room.
 
@@ -183,8 +187,8 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 
 ## Roadmap
 
-**Next up: the police** (Part A5 below): heat and wanted levels, then roadblocks and SWAT, then the
-army, as planned in [docs/POLICE.md](docs/POLICE.md).
+**Next up: the police** (Part A5 below): ✅ heat and wanted levels; next roadblocks and SWAT, then
+the army, as planned in [docs/POLICE.md](docs/POLICE.md).
 
 1. ✅ Shared simulation, placeholder renderer, driving and walking offline
 2. ✅ Multiplayer: authoritative WebSocket server, client-side prediction with reconciliation,
@@ -210,7 +214,8 @@ army, as planned in [docs/POLICE.md](docs/POLICE.md).
    police car sees it, major crimes a proactive response, eventually the army with tanks and
    helicopters), then the implementation. ✅ A first part already: ramming a police car gets the
    police after you; they chase you and arrest you (BUSTED). ✅ Analysis done and decided:
-   [docs/POLICE.md](docs/POLICE.md); next: heat and wanted levels 1–3
+   [docs/POLICE.md](docs/POLICE.md). ✅ Step 1: heat and wanted levels 1–3 (cop bribes, police
+   option per room); next: roadblocks and SWAT
 
 ### Later
 

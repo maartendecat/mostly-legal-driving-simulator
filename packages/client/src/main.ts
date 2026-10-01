@@ -99,7 +99,7 @@ async function main(): Promise<void> {
     lastIt = it;
     for (const event of events) {
       if (event.type === 'gangAngry' && event.pedId === session.myPedId) toast.show(`${gangName(event.gang)} are after you!`);
-      if (event.type === 'wanted' && event.pedId === session.myPedId) toast.show('The police are after you!');
+      if (event.type === 'wanted' && event.pedId === session.myPedId) toast.show(event.level === 1 ? 'The police are after you!' : `Wanted: ${stars(event.level)}`);
       if (event.type === 'busted' && session.players.some((p) => p.pedId === event.pedId)) killFeed.addBusted(session, event.pedId);
     }
     blockedPickupId = explainBlockedPickup(session, toast, blockedPickupId);
@@ -181,9 +181,11 @@ function otherPlayers(session: GameSession, transforms: TransformSnapshot): Othe
 
 function nameTagsFor(others: readonly OtherPlayer[], renderer: GameRenderer, itPedId: number | null): NameTag[] {
   const tags: NameTag[] = [];
-  for (const { player, position } of others) {
+  for (const { player, ped, position } of others) {
     const screen = renderer.projectToScreen(position.x, position.y, NAME_TAG_HEIGHT);
-    const text = player.pedId === itPedId ? `IT · ${player.name}` : player.name;
+    // Everyone can see who the police are after.
+    const name = ped.wanted > 0 ? `${player.name} ${stars(ped.wanted)}` : player.name;
+    const text = player.pedId === itPedId ? `IT · ${name}` : name;
     if (screen) tags.push({ id: player.pedId, text, ...screen });
   }
   return tags;
@@ -223,6 +225,10 @@ function updateArrows(
   arrows.update(list, origin.x, origin.y);
 }
 
+const stars = (level: number) => '★'.repeat(level);
+/** What each wanted level means, for the HUD. */
+const WANTED_TEXT = ['', 'the police are after you', 'all the police are after you', 'the police shoot on sight', 'no more arrests: they shoot to kill'];
+
 function hudText(session: GameSession, fps: number, pack: AssetPack): string {
   const world = session.world;
   const ped = session.myPedId === null ? undefined : world.peds.get(session.myPedId);
@@ -241,7 +247,8 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
     status,
     weapon,
     turf ? `Turf of ${gangName(turf)}` : '',
-    ped && ped.wanted > 0 ? `WANTED ${'★'.repeat(ped.wanted)}  the police are after you` : '',
+    ped && ped.wanted > 0 ? `WANTED ${stars(ped.wanted)}  ${WANTED_TEXT[Math.min(ped.wanted, WANTED_TEXT.length - 1)]}` : '',
+    ped && ped.beingArrested > 0 ? `A COP HAS GOT YOU: move to break free! ${'▮'.repeat(Math.ceil(ped.beingArrested * 10))}` : '',
     '',
     'Arrows/WASD  move / steer',
     'Enter or F   get in / out of car',

@@ -351,7 +351,8 @@
         grid-template-columns: 1fr auto auto;
         gap: 6px;
       }
-      #lobby-create input {
+      #lobby-create input,
+      #lobby-police {
         grid-column: 1 / -1;
       }
       #lobby-create button {
@@ -423,6 +424,11 @@
             <option value="10" selected>10 min</option>
             <option value="20">20 min</option>
             <option value="0">No limit</option>
+          </select>
+          <select id="lobby-police" aria-label="Police">
+            <option value="on" selected>Police and army</option>
+            <option value="noarmy">Police, no army</option>
+            <option value="off">No police</option>
           </select>
           <button id="lobby-create-button" type="submit" disabled>Create and join</button>
         </form>

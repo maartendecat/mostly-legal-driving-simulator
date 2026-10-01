@@ -1,10 +1,11 @@
-import { MAX_NAME_LENGTH, MAX_ROOM_NAME_LENGTH, type MatchMode, type RoomInfo } from '@game/shared';
+import { MAX_NAME_LENGTH, MAX_ROOM_NAME_LENGTH, type MatchMode, type PoliceMode, type RoomInfo } from '@game/shared';
 import type { GameSession } from '../session/GameSession';
 import { Lobby } from '../session/Lobby';
 
 const NAME_STORAGE_KEY = 'playerName';
 
 const MODE_NAMES: Record<MatchMode, string> = { frag: 'Frag', points: 'Points', tag: 'Tag' };
+const POLICE_NOTES: Record<PoliceMode, string> = { on: '', noarmy: ' · no army', off: ' · no police' };
 
 export interface LobbyScreenOptions {
   serverUrl: string;
@@ -26,6 +27,7 @@ export function showLobbyScreen({ serverUrl, lagMs, playOffline }: LobbyScreenOp
   const createForm = $<HTMLFormElement>('lobby-create');
   const roomNameInput = $<HTMLInputElement>('lobby-room-name');
   const modeSelect = $<HTMLSelectElement>('lobby-mode');
+  const policeSelect = $<HTMLSelectElement>('lobby-police');
   const timeSelect = $<HTMLSelectElement>('lobby-time');
   const createButton = $<HTMLButtonElement>('lobby-create-button');
   const offlineButton = $<HTMLButtonElement>('lobby-offline');
@@ -79,7 +81,7 @@ export function showLobbyScreen({ serverUrl, lagMs, playOffline }: LobbyScreenOp
           name.textContent = room.name; // typed by players: only ever as text
           const details = document.createElement('span');
           details.className = 'room-details';
-          details.textContent = `${MODE_NAMES[room.mode]} · ${room.players}/${room.maxPlayers}${room.phase === 'intermission' ? ' · between matches' : ''}`;
+          details.textContent = `${MODE_NAMES[room.mode]} · ${room.players}/${room.maxPlayers}${POLICE_NOTES[room.police] ?? ''}${room.phase === 'intermission' ? ' · between matches' : ''}`;
           const join = document.createElement('button');
           join.type = 'button';
           join.textContent = room.players >= room.maxPlayers ? 'Full' : 'Join';
@@ -124,7 +126,8 @@ export function showLobbyScreen({ serverUrl, lagMs, playOffline }: LobbyScreenOp
       event.preventDefault();
       const mode = modeSelect.value as MatchMode;
       const minutes = Number(timeSelect.value);
-      enter((l) => l.create(playerName(), { name: roomNameInput.value.trim(), mode, timeLimitMinutes: minutes }));
+      const police = policeSelect.value as PoliceMode;
+      enter((l) => l.create(playerName(), { name: roomNameInput.value.trim(), mode, timeLimitMinutes: minutes, police }));
     });
     retryButton.addEventListener('click', connect);
     offlineButton.addEventListener('click', () => {

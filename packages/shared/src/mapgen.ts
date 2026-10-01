@@ -11,6 +11,8 @@ const BORDER_HEIGHT = 6;
 const CAR_COUNT = 28;
 const PED_SPAWN_COUNT = 24;
 const PICKUP_COUNT = 16;
+/** Cop bribes: a few, far apart. */
+const BRIBE_COUNT = 3;
 /**
  * Gang turf, as city blocks (bx, by) per gang: a 2×2 corner of the city each (north-west,
  * north-east, south-centre); everything else is neutral. Blocks are counted from the south-west.
@@ -72,6 +74,13 @@ export function generateCity(seed: number, blocks = 6): BlockMap {
   map.carSpawns = pickCarSpawns(map, rng);
   map.pedSpawns = pickPedSpawns(map, rng);
   map.pickupSpawns = pickPickupSpawns(map, rng);
+  // Last, so adding them didn't change the rest of any city.
+  map.bribeSpawns = pickSpread(
+    pavementCells(map).filter((c) => map.pickupSpawns.every((p) => Math.hypot(p.x - c.x, p.y - c.y) > 4)),
+    rng,
+    BRIBE_COUNT,
+    20,
+  );
   return map;
 }
 

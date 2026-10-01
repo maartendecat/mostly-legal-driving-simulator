@@ -331,33 +331,63 @@ along a lane; and the danger check reacted to traffic merely driving past.)
 
 ## 12. Police
 
-A first part of the police (`police.ts`). The full design (crimes by severity, escalating response,
-the army) is proposed in [POLICE.md](POLICE.md).
+`police.ts`, following the plan in [POLICE.md](POLICE.md) (step 1 of it is built: heat, wanted
+levels and the response up to three stars; SWAT, roadblocks and the army are to come).
 
-- **Police cars:** besides the other traffic, a number of police cars drive around (`POLICE_CARS`,
-  default 2): sedans with a crew of two, drawn with the Car Kit's police car (which ordinary sedans
-  no longer use).
-- **Crimes** (any of them makes a player wanted, at once, wherever the police are): ramming a
-  police car (an impact over 1 block/s; touching doesn't count), hurting a cop or a police car,
-  stealing a police car (both cops jump out, needing 1 s to get back on their feet). Only players
-  commit crimes. A `wanted` event tells that player ("The police are after you!"); the HUD shows
-  WANTED ★.
-- **Chase:** police cars within 20 blocks of a wanted player give chase with their lights flashing:
-  straight at them when they can see them, otherwise along the roads (a breadth-first search over
-  road cells, redone every half second), at up to 10 blocks/s (4 in turns), backing up when stuck.
-  Once the suspect is within 4 blocks and (nearly) stopped, or on foot, the car pulls up and both
-  cops get out. Cops on foot within 15 blocks run after a wanted player.
-- **Arrest:** a cop within reach of a wanted player on foot, or in a car going slower than 1
-  block/s, arrests them: BUSTED (`busted` event, sent to everyone like a player's death). Out of
-  their car, weapons gone, taken away (not drawn, not a body) and back after 3 s like a respawn.
-  It counts as a death on the scoreboard, but nobody's frag.
-- **Losing them:** every tick a cop on foot or a crewed police car within 12 blocks, in plain sight,
-  renews the 30 s the police keep looking. Unseen for 30 s, they give up; chasing cars go back to
-  driving around. Dying clears your record too.
-- **Measured:** standing still after ramming a police car: busted after about 1.9 s (8 cities). A
-  police car 12–19 blocks away, no cops on foot: busted after 2.3–10 s, typically 3–4 (11 cities).
-- **Network:** chasing is decided on the server only (traffic state isn't sent); clients see the
-  `siren` flag and the cops getting out.
+- **Police on the streets:** police cars drive around with the traffic (`POLICE_CARS`, default 2;
+  sedans with a crew of two, drawn as the Car Kit's police car) and cops patrol on foot (`COPS`).
+- **Room option** (`POLICE`, or chosen when creating a room): `on` (the default, up to the army),
+  `noarmy` (stops at five stars) or `off` (no cops, police cars or bribes, and nothing is a crime).
+- **Heat and stars:** crimes add heat; heat sets the wanted level: 1 star from 10, 2 from 30, 3
+  from 60, 4 from 100, 5 from 150, the army from 220. Only players commit crimes, and **killing
+  other players is not one** (that's the game).
+
+  | Crime | Heat | Counts |
+  |---|---|---|
+  | Shooting | 2 per second of firing | only when seen |
+  | Hitting someone with a car | 5 (at most twice a second) | only when seen |
+  | Stealing a car with its driver in it | 10 | only when seen |
+  | Wrecking a car | 10 | only when seen |
+  | Killing a pedestrian or gang member | 15 | only when seen |
+  | Ramming a police car (over 1 block/s), hurting a cop or a police car | 10 (at most once a second) | always |
+  | Stealing a police car | 20 | always |
+  | Killing a cop, wrecking a police car | 40 | always |
+
+  "Seen": a cop on foot or a crewed police car within 12 blocks, in plain sight. A new star is
+  announced with a `wanted` event (a toast); the HUD and other players' name tags show the stars.
+- **Losing stars:** out of the police's sight for 25 s the top star goes, then one more every 15 s
+  (each time down to the start of the level below). Being seen resets the countdown. Dying or
+  getting busted clears everything. **Cop bribes:** three crates per city (picked last by the map
+  generator, so cities didn't change) take a star off at once; only a wanted player takes one, and
+  it's back after a minute.
+- **The response:**
+  - 1 star: police cars within 20 blocks give chase (lights flashing), cops on foot within 15
+    run after the suspect. No shooting.
+  - 2 stars: every police car in the city gives chase, plus 2 reinforcements (4 from 3 stars; at
+    most 8 per room), which appear on a road 15–40 blocks away, out of every player's sight, and
+    disappear again (out of sight) once they're not needed. Cops within 25 blocks join in, and shoot
+    back at a suspect who has been shooting (in the last 10 s, where the police saw it).
+  - 3 stars: cops shoot on sight; police cars ram (below three stars they keep pace behind a
+    moving suspect instead).
+  - 4 stars and up: no more arrests, only shooting (until SWAT and the army come in later steps).
+- **Chasing** is shared with the fire brigade (`navigate.ts`): straight at the suspect in plain
+  sight, otherwise along the roads (a breadth-first search over road cells, redone every half
+  second), up to 10 blocks/s (4 in turns), backing up when stuck. Once the suspect is within 4
+  blocks and (nearly) stopped, or on foot, the car pulls up and both cops get out.
+- **Cops shooting** works like gang members: half a second to aim, a shot every 1.25 s, up to
+  0.16 rad off, from up to 10 blocks (not when the suspect is within 4 blocks and can be grabbed).
+  Players killed by the police died in an accident: a death, nobody's frag.
+- **Arrest:** a cop who reaches a suspect on foot, or in a car going under 1 block/s, holds on for
+  a second (`beingArrested` shows it: "A cop has got you"). Getting out of reach (walking off,
+  driving off) breaks free and shakes the cop off for a second; staying put: BUSTED (`busted`
+  event, sent to everyone). Out of their car, weapons gone, taken away (not drawn, not a body) and
+  back after 3 s like a respawn. It counts as a death on the scoreboard (nobody's frag) and costs
+  250 points in Points mode. Cops thrown out of their stolen police car need a second to get up, too.
+- **Measured** (6 cities each, a player standing still): 1 star: busted after 5–21 s, or nobody
+  close enough came; 2 stars: busted after 4.5–9.5 s; 3 stars: busted or shot after 4–7 s; 4 stars:
+  shot after 6–9 s. A full city still costs about 0.45 ms per tick.
+- **Network:** chasing is decided on the server only (traffic state isn't sent); clients see
+  `siren`, `wanted` and `beingArrested`.
 
 ## 13. Networking
 
@@ -530,7 +560,10 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 | Pedestrians are peds with `kind` and `ai` | Shooting, running over, bodies and physics work for them unchanged |
 | Pedestrians dodge cars sideways, ignore passing traffic | Measured: fleeing "away" or reacting to any nearby car got them run over |
 | Fire trucks put out burning wrecks, not burning cars | A car blows 3 s after catching fire: no truck could get there in time |
-| Ramming a police car makes you wanted at once | Playtest feedback; the rest of the police design comes later |
+| Ramming a police car makes you wanted at once | Playtest feedback |
+| Heat and stars, minor crimes only when seen | GTA2's model; small crimes add up, attacks on the police always count (POLICE.md) |
+| Killing players is no crime | The police shouldn't punish playing the deathmatch (decided after the analysis) |
+| Arrest takes a second you can break away from | Escapes possible, arrests deliberate (decided after the analysis) |
 | Busted = taken away, back after 3 s, weapons gone | Like a respawn, but without a body |
 | Traffic drivers exist only when they get out | No ped to carry around in every traffic car; spawned at the door when needed |
 | Gangs: fixed turf plus per-player grudges | Like GTA2's gang respect, but simple: hurt one, the gang is after you for a while |
@@ -552,8 +585,8 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 
 ## 19. Known limitations and next steps
 
-- The rest of the police: crimes by severity (seen or not), escalating response, the
-  army; police as a per-game option (planned in [POLICE.md](POLICE.md)).
+- The rest of the police (POLICE.md steps 2–4): roadblocks and SWAT, the army (tank, soldiers,
+  helicopter).
 - A co-op game mode, everyone together against the police (TODO, after the full police).
 - Chasing police cars don't avoid other cars and only know the roads, not shortcuts across pavements.
 - Gang members don't drive, don't fight each other, and chase in a straight line (no path finding).

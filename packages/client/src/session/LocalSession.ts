@@ -1,13 +1,9 @@
-import { TICK_DT, createWorld, generateCity, spawnPed, stepWorld, type GameEvent, type PlayerInfo, type PlayerInput, type World } from '@game/shared';
+import { TICK_DT, createWorld, generateCity, spawnPed, stepWorld, type GameEvent, type PlayerInfo, type PlayerInput, type World, type WorldOptions } from '@game/shared';
 import { captureTransforms, interpolateTransforms, type TransformSnapshot } from '../render/transforms';
 import type { FrameState, GameSession } from './GameSession';
 
-const OFFLINE_TRAFFIC = 16;
-const OFFLINE_PEDESTRIANS = 40;
-const OFFLINE_GANG_MEMBERS = 6;
-const OFFLINE_COPS = 6;
-const OFFLINE_POLICE_CARS = 2;
-const OFFLINE_FIRE_TRUCKS = 2;
+/** Offline, the city is as lively as on the server by default. */
+const OFFLINE_CITY: WorldOptions = { traffic: 16, pedestrians: 40, gangMembers: 6, cops: 6, policeCars: 2, fireTrucks: 2, police: 'on' };
 
 /** Single-player: runs the shared simulation in the browser at the fixed tick rate. */
 export class LocalSession implements GameSession {
@@ -22,14 +18,7 @@ export class LocalSession implements GameSession {
     seed: number,
     readonly status = 'Offline',
   ) {
-    this.world = createWorld(generateCity(seed), seed, {
-      traffic: OFFLINE_TRAFFIC,
-      pedestrians: OFFLINE_PEDESTRIANS,
-      gangMembers: OFFLINE_GANG_MEMBERS,
-      cops: OFFLINE_COPS,
-      policeCars: OFFLINE_POLICE_CARS,
-      fireTrucks: OFFLINE_FIRE_TRUCKS,
-    });
+    this.world = createWorld(generateCity(seed), seed, OFFLINE_CITY);
     this.myPedId = spawnPed(this.world).id;
     this.players = [{ pedId: this.myPedId, name: 'You', frags: 0, deaths: 0, points: 0, itTicks: 0 }];
     this.previous = captureTransforms(this.world);

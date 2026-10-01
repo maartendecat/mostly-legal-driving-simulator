@@ -6,7 +6,9 @@ import {
   Match,
   NO_INPUT,
   PED_MAX_HEALTH,
-  WANTED_TICKS,
+  COOL_OFF_TICKS,
+  CUFF_TICKS,
+  LEVEL_DROP_TICKS,
   cloneWorld,
   createWorld,
   damageCar,
@@ -119,7 +121,7 @@ test('a cop who reaches a wanted player on foot arrests them: BUSTED, unarmed, b
   const cop = spawnPedestrian(world, 8, 4, 'cop');
   const match = new Match({ ...DEFAULT_MATCH_SETTINGS, modes: ['frag'] }, world);
   match.addPlayer(world, player.id);
-  reportCrime(world, player.id);
+  reportCrime(world, player.id, 'assaultPolice');
   let busted = false;
   for (let i = 0; i < secondsToTicks(5) && !busted; i++) {
     stepWorld(world, new Map());
@@ -144,7 +146,7 @@ test('cops cannot arrest someone driving off; once the car stops, they can', () 
   car.driverId = player.id;
   player.carId = car.id;
   const cop = spawnPedestrian(world, 30, 4, 'cop');
-  reportCrime(world, player.id);
+  reportCrime(world, player.id, 'assaultPolice');
   // Creeping along at walking pace with the cop alongside: not busted.
   for (let i = 0; i < 60; i++) {
     car.vx = 2;
@@ -154,7 +156,7 @@ test('cops cannot arrest someone driving off; once the car stops, they can', () 
   assert.equal(player.respawnAt, null);
   assert.ok(Math.hypot(cop.x - car.x, cop.y - car.y) < 1.5, 'the cop keeps up');
   car.vx = 0;
-  run(world, 60);
+  run(world, CUFF_TICKS + 30);
   assert.ok(isBusted(player));
   assert.equal(car.driverId, null, 'taken out of the car');
 });
@@ -165,7 +167,7 @@ test('police cars nearby chase a wanted player along the roads, pull up, and the
   const police = [...world.cars.values()].find((c) => c.police && c.traffic)!;
   const spot = world.map.pedSpawns.find((s) => Math.hypot(s.x - police.x, s.y - police.y) > 12 && Math.hypot(s.x - police.x, s.y - police.y) < 19)!;
   const player = spawnPed(world, spot.x, spot.y);
-  reportCrime(world, player.id);
+  reportCrime(world, player.id, 'assaultPolice');
   run(world, 1);
   assert.ok(police.siren && police.traffic?.pursuing === player.id, 'giving chase, lights flashing');
   let busted = false;
@@ -178,8 +180,8 @@ test('out of sight of the police for a while, they give up; their cars go back t
   const { world, police } = policeCar();
   Object.assign(police, { traffic: null }); // parked, nobody in it: it sees nothing
   const player = spawnPed(world, 60.5, 60.5); // far away, out of sight of any cop
-  reportCrime(world, player.id);
-  run(world, WANTED_TICKS - 1);
+  reportCrime(world, player.id, 'assaultPolice');
+  run(world, COOL_OFF_TICKS + LEVEL_DROP_TICKS - 2);
   assert.equal(player.wanted, 1);
   run(world, 2);
   assert.equal(player.wanted, 0);
@@ -187,14 +189,12 @@ test('out of sight of the police for a while, they give up; their cars go back t
 
   // A police car that was chasing them goes back to driving around.
   startTraffic(world, police);
-  reportCrime(world, player.id);
+  reportCrime(world, player.id, 'assaultPolice');
   police.traffic!.pursuing = player.id;
   police.siren = true;
-  world.wanted[0]!.until = world.tick + 1;
-  player.x = police.x + 40; // and they're nowhere near
+  world.wanted = [];
+  player.wanted = 0;
   run(world, 2);
-  assert.equal(player.wanted, 0);
-  assert.equal(world.wanted.length, 0);
   assert.equal(police.siren, false);
   assert.equal(police.traffic?.pursuing, null);
 });
@@ -202,7 +202,7 @@ test('out of sight of the police for a while, they give up; their cars go back t
 test('dying clears your record', () => {
   const { world } = policeCar();
   const player = spawnPed(world, 60.5, 60.5);
-  reportCrime(world, player.id);
+  reportCrime(world, player.id, 'assaultPolice');
   damagePed(world, player, 1000, null, 'runOver');
   run(world, 1);
   assert.equal(player.wanted, 0);
@@ -214,7 +214,7 @@ test('the busted are taken away, not left lying there: nobody stares at them', (
   const player = spawnPed(world, 12.5, 4.5);
   spawnPedestrian(world, 8, 4, 'cop');
   const passerBy = spawnPedestrian(world, 15, 4);
-  reportCrime(world, player.id);
+  reportCrime(world, player.id, 'assaultPolice');
   run(world, secondsToTicks(3));
   assert.ok(isBusted(player));
   assert.deepEqual(passerBy.ai!.seenBodies, []);
@@ -241,7 +241,7 @@ test('chases replay identically', () => {
   const world = createWorld(generateCity(4), 4, { traffic: 8, pedestrians: 10, cops: 4, policeCars: 2 });
   run(world, 300);
   const player = spawnPed(world, 40.5, 4.5);
-  reportCrime(world, player.id);
+  reportCrime(world, player.id, 'assaultPolice');
   const copy = cloneWorld(world);
   run(world, 400);
   run(copy, 400);

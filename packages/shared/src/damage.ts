@@ -1,6 +1,6 @@
 import { randomPick } from './math';
 import { provokeGang } from './gangs';
-import { reportCrime } from './police';
+import { reportCrime, reportHarm, reportWreck } from './police';
 import { WRECK_BURN_TICKS } from './fire';
 import { CORPSE_TICKS, ejectDriver } from './pedestrians';
 import { secondsToTicks } from './time';
@@ -42,9 +42,11 @@ export function isDead(ped: Ped): boolean {
 export function damagePed(world: World, ped: Ped, amount: number, attackerId: number | null, cause: DamageCause): void {
   if (isDead(ped) || amount <= 0) return;
   if (ped.kind === 'gangster') provokeGang(world, ped, attackerId);
-  if (ped.kind === 'cop') reportCrime(world, attackerId);
   ped.health -= amount;
-  if (ped.health > 0) return;
+  if (ped.health > 0) {
+    reportHarm(world, ped, attackerId, cause, false);
+    return;
+  }
 
   ped.health = 0;
   // Players come back; a pedestrian's body is cleared away after a while.
@@ -65,6 +67,7 @@ export function damagePed(world: World, ped: Ped, amount: number, attackerId: nu
     x: ped.x,
     y: ped.y,
   });
+  reportHarm(world, ped, attackerId, cause, true);
 }
 
 /**
@@ -76,7 +79,7 @@ export function damageCar(world: World, car: Car, amount: number, attackerId: nu
   if (car.driverId !== null && car.driverId === world.itPedId) amount *= IT_CAR_DAMAGE;
   // Accidents don't clear the credit: shoot a car, then its driver crashes it, and it's still yours.
   if (attackerId !== null) car.lastAttackerId = attackerId;
-  if (car.police) reportCrime(world, attackerId);
+  if (car.police) reportCrime(world, attackerId, 'assaultPolice');
   car.health = Math.max(0, car.health - amount);
   if (car.health > 0) return;
   // A traffic car's driver bails out of the burning car and runs (no time for that when a rocket
@@ -159,6 +162,7 @@ function explodeCar(world: World, car: Car): void {
     x: car.x,
     y: car.y,
   });
+  reportWreck(world, car);
   const driver = car.driverId === null ? undefined : world.peds.get(car.driverId);
   if (driver) damagePed(world, driver, PED_MAX_HEALTH, car.lastAttackerId, 'carExplosion');
   explode(world, car.x, car.y, CAR_EXPLOSION_RADIUS, CAR_EXPLOSION_DAMAGE, car.lastAttackerId, 'carExplosion', car.id);

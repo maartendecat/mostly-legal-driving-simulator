@@ -181,6 +181,31 @@ export function maintainTraffic(world: World): void {
   startTraffic(world, car);
 }
 
+/** No player within this many blocks: things can appear and disappear there unnoticed. */
+const OUT_OF_SIGHT = 16;
+
+/** No player within OUT_OF_SIGHT blocks of (x, y). */
+export function outOfSight(world: World, x: number, y: number): boolean {
+  for (const ped of world.peds.values()) {
+    if (ped.kind === 'player' && Math.hypot(ped.x - x, ped.y - y) < OUT_OF_SIGHT) return false;
+  }
+  return true;
+}
+
+/**
+ * A random lane cell between `minDistance` and `maxDistance` from (x, y), out of every player's
+ * sight and clear of other cars: where fire trucks and police reinforcements set out from.
+ */
+export function hiddenLaneNear(world: World, x: number, y: number, minDistance: number, maxDistance: number): TrafficWaypoint | null {
+  const cells = laneCells(world.map).filter((cell) => {
+    const distance = Math.hypot(cell.x - x, cell.y - y);
+    if (distance < minDistance || distance > maxDistance || !outOfSight(world, cell.x, cell.y)) return false;
+    for (const car of world.cars.values()) if (Math.hypot(car.x - cell.x, car.y - cell.y) < SPAWN_CLEARANCE) return false;
+    return true;
+  });
+  return cells.length > 0 ? randomPick(world, cells) : null;
+}
+
 /** Appends waypoints until the route runs at least three points ahead. False at a dead end. */
 function extendRoute(world: World, traffic: TrafficState): boolean {
   const map = world.map;

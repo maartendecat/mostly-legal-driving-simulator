@@ -2,7 +2,7 @@ import { NO_INPUT, type PlayerInput } from './input';
 import { randomPick } from './math';
 import { driveTowards, forwardSpeed } from './navigate';
 import { secondsToTicks } from './time';
-import { laneCells, startTraffic, type TrafficState } from './traffic';
+import { hiddenLaneNear, laneCells, outOfSight, startTraffic, type TrafficState } from './traffic';
 import { spawnCar, type Car, type World } from './world';
 import { DIRECTIONS } from './map';
 
@@ -20,12 +20,9 @@ export const WRECK_BURN_TICKS = secondsToTicks(25);
 export const SPRAY_RANGE = 3.5;
 /** ...for this long to put a fire out. */
 export const EXTINGUISH_TICKS = secondsToTicks(2.5);
-/** Fire trucks set out from this far from the fire (in blocks)... */
+/** Fire trucks set out from this far from the fire (in blocks), out of every player's sight. */
 const DISPATCH_MIN_DISTANCE = 12;
 const DISPATCH_MAX_DISTANCE = 40;
-/** ...where no player can see them appear, and disappear again once out of sight. */
-const OUT_OF_SIGHT = 16;
-const SPAWN_CLEARANCE = 3;
 /** How often new fires are looked for. */
 const DISPATCH_EVERY_TICKS = 30;
 /** A fire truck that hasn't got there in this time gives up. */
@@ -85,29 +82,14 @@ export function stepFire(world: World): void {
 
 /** Sends a fire truck to a burning wreck, from a lane out of every player's sight. */
 function dispatch(world: World, wreck: Car): boolean {
-  const cells = laneCells(world.map).filter((cell) => {
-    const distance = Math.hypot(cell.x - wreck.x, cell.y - wreck.y);
-    if (distance < DISPATCH_MIN_DISTANCE || distance > DISPATCH_MAX_DISTANCE) return false;
-    if (!outOfSight(world, cell.x, cell.y)) return false;
-    for (const car of world.cars.values()) if (Math.hypot(car.x - cell.x, car.y - cell.y) < SPAWN_CLEARANCE) return false;
-    return true;
-  });
-  if (cells.length === 0) return false;
-  const cell = randomPick(world, cells);
+  const cell = hiddenLaneNear(world, wreck.x, wreck.y, DISPATCH_MIN_DISTANCE, DISPATCH_MAX_DISTANCE);
+  if (!cell) return false;
   const truck = spawnCar(world, 'fireTruck', cell.x, cell.y, DIRECTIONS[cell.dir]!.heading);
   truck.color = 0xd32f2f;
   startTraffic(world, truck);
   truck.traffic!.fire = wreck.id;
   truck.traffic!.route = [];
   truck.siren = true;
-  return true;
-}
-
-/** No player within OUT_OF_SIGHT blocks. */
-function outOfSight(world: World, x: number, y: number): boolean {
-  for (const ped of world.peds.values()) {
-    if (ped.kind === 'player' && Math.hypot(ped.x - x, ped.y - y) < OUT_OF_SIGHT) return false;
-  }
   return true;
 }
 

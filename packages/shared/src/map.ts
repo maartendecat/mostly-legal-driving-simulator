@@ -68,6 +68,8 @@ export interface BlockMap {
   pedSpawns: Vec2[];
   carSpawns: CarSpawn[];
   pickupSpawns: PickupSpawn[];
+  /** Where cop bribes lie (only in cities with police). */
+  bribeSpawns: Vec2[];
 }
 
 export function createMap(width: number, height: number): BlockMap {
@@ -83,6 +85,7 @@ export function createMap(width: number, height: number): BlockMap {
     pedSpawns: [],
     carSpawns: [],
     pickupSpawns: [],
+    bribeSpawns: [],
   };
 }
 

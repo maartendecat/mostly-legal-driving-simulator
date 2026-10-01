@@ -54,7 +54,7 @@ test('the lobby lists the permanent default room as soon as you connect', () =>
     const lobby = new Client(server.port);
     const { rooms } = await lobby.next('rooms');
     assert.equal(rooms.length, 1);
-    assert.deepEqual({ ...rooms[0], id: undefined }, { id: undefined, name: 'Downtown', mode: 'frag', players: 0, maxPlayers: MAX_PLAYERS_PER_ROOM, phase: 'playing' });
+    assert.deepEqual({ ...rooms[0], id: undefined }, { id: undefined, name: 'Downtown', mode: 'frag', players: 0, maxPlayers: MAX_PLAYERS_PER_ROOM, phase: 'playing', police: 'on' });
     lobby.close();
   }));
 
@@ -73,6 +73,23 @@ test('creating a room joins it, and the lobby sees it appear with its mode and p
     const { rooms } = await lobby.next('rooms', (m) => m.rooms.length === 2);
     const created = rooms.find((r) => r.id === welcome.roomId);
     assert.deepEqual([created?.name, created?.mode, created?.players], ['Tag night', 'tag', 1]);
+    host.close();
+    lobby.close();
+  }));
+
+test('a room can be created without police: no cops, no police cars, and the lobby says so', () =>
+  withServer({ city: { cops: 4, policeCars: 2, police: 'on' } }, async (server) => {
+    const lobby = new Client(server.port);
+    await lobby.next('rooms');
+    const host = new Client(server.port);
+    await host.send({ type: 'createRoom', name: 'Alice', room: { name: 'Calm', mode: 'frag', police: 'off' } });
+    const welcome = await host.next('welcome');
+    const { rooms } = await lobby.next('rooms', (m) => m.rooms.length === 2);
+    assert.equal(rooms.find((r) => r.id === welcome.roomId)?.police, 'off');
+    assert.equal(rooms.find((r) => r.id !== welcome.roomId)?.police, 'on', 'the default room keeps the server setting');
+    const snapshot = await host.next('snapshot', (s) => s.tick > 120);
+    assert.equal(snapshot.peds.filter((p) => p.kind === 'cop').length, 0);
+    assert.equal(snapshot.cars.filter((c) => c.police).length, 0);
     host.close();
     lobby.close();
   }));

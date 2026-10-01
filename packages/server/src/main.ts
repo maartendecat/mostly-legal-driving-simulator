@@ -1,4 +1,4 @@
-import { DEFAULT_MATCH_SETTINGS, DEFAULT_SERVER_PORT, MATCH_MODES, TICK_RATE, secondsToTicks, type MatchMode } from '@game/shared';
+import { DEFAULT_MATCH_SETTINGS, DEFAULT_SERVER_PORT, MATCH_MODES, POLICE_MODES, TICK_RATE, secondsToTicks, type MatchMode, type PoliceMode, type WorldOptions } from '@game/shared';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { GameServer } from './GameServer';
@@ -25,18 +25,25 @@ const staticDir = process.env.STATIC_DIR ?? (existsSync(builtClient) ? builtClie
 // TRAFFIC / PEDESTRIANS / GANG_MEMBERS / COPS / POLICE_CARS: cars driving and people walking
 // around each room's city: civilians, members per gang (on their turf), cops on foot, and police
 // cars besides the other traffic (0 for none). FIRE_TRUCKS: how many fire trucks can be out at once.
-const traffic = Number(process.env.TRAFFIC ?? 16);
-const pedestrians = Number(process.env.PEDESTRIANS ?? 40);
-const gangMembers = Number(process.env.GANG_MEMBERS ?? 6);
-const cops = Number(process.env.COPS ?? 6);
-const policeCars = Number(process.env.POLICE_CARS ?? 2);
-const fireTrucks = Number(process.env.FIRE_TRUCKS ?? 2);
+// POLICE: on (the default: up to the army), noarmy, or off (no police at all); players creating a
+// room choose for themselves.
+const police = (process.env.POLICE ?? 'on') as PoliceMode;
+if (!POLICE_MODES.includes(police)) throw new Error(`POLICE must be one of ${POLICE_MODES.join(', ')}`);
+const city: WorldOptions = {
+  traffic: Number(process.env.TRAFFIC ?? 16),
+  pedestrians: Number(process.env.PEDESTRIANS ?? 40),
+  gangMembers: Number(process.env.GANG_MEMBERS ?? 6),
+  cops: Number(process.env.COPS ?? 6),
+  policeCars: Number(process.env.POLICE_CARS ?? 2),
+  fireTrucks: Number(process.env.FIRE_TRUCKS ?? 2),
+  police,
+};
 
-const server = new GameServer({ port, seed, staticDir, traffic, pedestrians, gangMembers, cops, policeCars, fireTrucks, match: { modes, scoreLimits, timeLimitTicks: secondsToTicks(minutes * 60) } });
+const server = new GameServer({ port, seed, staticDir, city, match: { modes, scoreLimits, timeLimitTicks: secondsToTicks(minutes * 60) } });
 await server.listening();
 console.log(`Game server listening on port ${server.port} (city seed ${seed})`);
 console.log(staticDir ? `Serving the game at http://localhost:${server.port}` : 'Not serving the game page (run npm run build first, or use the Vite dev server)');
-console.log(`Modes: ${modes.join(' → ')}, ${minutes > 0 ? `${minutes} min` : 'no time limit'} per match; ${traffic} traffic cars, ${pedestrians} pedestrians, ${gangMembers} members per gang, ${cops} cops, ${policeCars} police cars and ${fireTrucks} fire trucks per room`);
+console.log(`Modes: ${modes.join(' → ')}, ${minutes > 0 ? `${minutes} min` : 'no time limit'} per match; ${city.traffic} traffic cars, ${city.pedestrians} pedestrians, ${city.gangMembers} members per gang, ${city.cops} cops, ${city.policeCars} police cars and ${city.fireTrucks} fire trucks per room; police: ${police}`);
 
 setInterval(() => {
   if (server.playerCount > 0) console.log(`tick ${server.world.tick} · ${server.playerCount} player(s)`);

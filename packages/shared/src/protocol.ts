@@ -2,6 +2,7 @@ import type { GameEvent, Pickup, Projectile } from './combat';
 import type { SnapshotDelta } from './delta';
 import type { PlayerInput } from './input';
 import { MATCH_MODES, type MatchMode, type MatchPhase, type MatchState, type PlayerScore } from './match';
+import { POLICE_MODES, type PoliceMode } from './police';
 import type { Car, Ped, World } from './world';
 
 /**
@@ -28,6 +29,8 @@ export interface RoomSettings {
   scoreLimit?: number;
   /** Match length; 0 for none. Omitted: the default. */
   timeLimitMinutes?: number;
+  /** Omitted: the server's default (police and army on). */
+  police?: PoliceMode;
 }
 
 /** A room as listed in the lobby. */
@@ -38,6 +41,7 @@ export interface RoomInfo {
   players: number;
   maxPlayers: number;
   phase: MatchPhase;
+  police: PoliceMode;
 }
 
 export interface PlayerInfo extends PlayerScore {
@@ -167,11 +171,13 @@ function parseRoomSettings(raw: Record<string, unknown>): RoomSettings | null {
     typeof value === 'number' && Number.isFinite(value) ? Math.min(Math.max(Math.round(value), 0), max) : undefined;
   const scoreLimit = clamp(raw.scoreLimit, MAX_SCORE_LIMITS[mode]);
   const timeLimitMinutes = clamp(raw.timeLimitMinutes, MAX_TIME_LIMIT_MINUTES);
+  const police = POLICE_MODES.includes(raw.police as PoliceMode) ? (raw.police as PoliceMode) : undefined;
   return {
     name,
     mode,
     ...(scoreLimit !== undefined ? { scoreLimit } : {}),
     ...(timeLimitMinutes !== undefined ? { timeLimitMinutes } : {}),
+    ...(police ? { police } : {}),
   };
 }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Block, CAR_MODELS, isBusted, type BlockMap, type Car, type CarModelId, type Ped, type PedLook, type Pickup, type WeaponId } from '@game/shared';
+import { Block, CAR_MODELS, type BlockMap, type Car, type CarModelId, type Ped, type PedLook, type Pickup, type WeaponId } from '@game/shared';
 import type { AssetPack, EntityView, PickupViewState } from '../AssetPack';
 import { BloodPool, CarDamageEffects, WalkAnimation, WaterJet, carDamage, hash } from '../common';
 import { PlaceholderPack, hasDash } from '../placeholder/PlaceholderPack';
@@ -33,6 +33,8 @@ const POSES: Pose[] = ['stand', 'gun', 'machine', 'silencer'];
 const POSE_FOR_WEAPON: Record<WeaponId, Pose> = { pistol: 'gun', machineGun: 'machine', rocketLauncher: 'silencer' };
 const WEAPON_ICONS: Record<WeaponId, string> = { pistol: 'weapon_gun', machineGun: 'weapon_machine', rocketLauncher: 'weapon_silencer' };
 const WEAPON_COLORS: Record<WeaponId, number> = { pistol: 0xd7dde0, machineGun: 0x42a5f5, rocketLauncher: 0xef5350 };
+/** Cop bribes: a police-blue glow and a gold star. */
+const BRIBE_COLOR = 0x2f6bff;
 
 /** Top-down Shooter sprites: pixels per block, and where the body's centre is from the left edge. */
 const SPRITE_SCALE = 1 / 92;
@@ -72,6 +74,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
   private readonly cars = new Map<string, CarTemplate>();
   private facade!: THREE.Texture;
   private roof!: THREE.Texture;
+  private bribeIcon!: THREE.Texture;
   private readonly spriteGeometry = new THREE.PlaneGeometry(1, 1);
 
   override async load(): Promise<void> {
@@ -100,6 +103,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
     await Promise.all([...new Set([...Object.values(CAR_VARIANTS).flat(), POLICE_CAR])].map(loadCar));
     this.facade = canvasTexture(64, drawFacade);
     this.roof = canvasTexture(64, drawRoof);
+    this.bribeIcon = canvasTexture(48, drawBribe);
   }
 
   override buildMap(map: BlockMap): THREE.Object3D {
@@ -275,8 +279,6 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
         body.rotation.z = dead ? Math.PI / 2 : sway;
         material.color.copy(tint).multiplyScalar(dead ? 0.44 : 1);
         ring.visible = !dead && state.kind === 'player';
-        // Arrested: taken away until they're back.
-        group.visible = !isBusted(state);
         blood.update(dt, dead);
       },
       dispose: () => {
@@ -294,17 +296,18 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
     const group = new THREE.Group();
     const glow = new THREE.Mesh(
       new THREE.CircleGeometry(0.34, 24),
-      new THREE.MeshBasicMaterial({ color: WEAPON_COLORS[pickup.weapon], transparent: true, opacity: 0.45 }),
+      new THREE.MeshBasicMaterial({ color: pickup.weapon ? WEAPON_COLORS[pickup.weapon] : BRIBE_COLOR, transparent: true, opacity: 0.45 }),
     );
     glow.position.z = 0.02;
     const crateMaterial = spriteMaterial(this.texture('tiles/tile_129'));
     const crate = new THREE.Mesh(this.spriteGeometry, crateMaterial);
     crate.scale.set(0.55, 0.55, 1);
-    const iconTexture = this.texture(`tiles/${WEAPON_ICONS[pickup.weapon]}`);
+    const iconTexture = pickup.weapon ? this.texture(`tiles/${WEAPON_ICONS[pickup.weapon]}`) : this.bribeIcon;
     const iconMaterial = spriteMaterial(iconTexture);
     const icon = new THREE.Mesh(this.spriteGeometry, iconMaterial);
     const image = iconTexture.image as { width: number; height: number };
-    icon.scale.set(image.width / 70, image.height / 70, 1);
+    if (pickup.weapon) icon.scale.set(image.width / 70, image.height / 70, 1);
+    else icon.scale.set(0.38, 0.38, 1); // the bribe's star, a little smaller than the crate
     const spinner = new THREE.Group();
     spinner.add(crate, icon);
     crate.position.z = 0.3;
@@ -353,6 +356,23 @@ function canvasTexture(size: number, draw: (g: CanvasRenderingContext2D, size: n
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
   return texture;
+}
+
+/** A cop bribe's icon: a gold sheriff's star on a police-blue disc. */
+function drawBribe(g: CanvasRenderingContext2D, s: number): void {
+  g.fillStyle = '#1d3fb8';
+  g.beginPath();
+  g.arc(s / 2, s / 2, s * 0.46, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#ffd23f';
+  g.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? s * 0.38 : s * 0.16;
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    g.lineTo(s / 2 + Math.cos(a) * r, s / 2 + Math.sin(a) * r);
+  }
+  g.closePath();
+  g.fill();
 }
 
 /** One storey of wall: white (tinted per building) with two framed windows. */

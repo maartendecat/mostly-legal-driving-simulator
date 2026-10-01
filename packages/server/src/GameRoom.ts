@@ -24,6 +24,7 @@ import {
   type ServerMessage,
   type Snapshot,
   type World,
+  type WorldOptions,
 } from '@game/shared';
 
 export interface GameRoomOptions {
@@ -33,18 +34,8 @@ export interface GameRoomOptions {
   match: MatchSettings;
   /** Permanent rooms stay open when empty; rooms players create are closed when nobody's left. */
   permanent: boolean;
-  /** Traffic cars driving around the city. */
-  traffic: number;
-  /** Pedestrians walking around the city. */
-  pedestrians: number;
-  /** Members of each gang hanging around on their turf. */
-  gangMembers: number;
-  /** Cops on patrol. */
-  cops: number;
-  /** Police cars driving around, besides the other traffic. */
-  policeCars: number;
-  /** Fire trucks that can be out at once. */
-  fireTrucks: number;
+  /** Who lives in the city: traffic, pedestrians, gangs, police, fire brigade. */
+  city: WorldOptions;
 }
 
 export interface Player {
@@ -78,14 +69,7 @@ export class GameRoom {
   private emptySince: number | null;
 
   constructor(readonly options: GameRoomOptions) {
-    this.world = createWorld(generateCity(options.seed), options.seed, {
-      traffic: options.traffic,
-      pedestrians: options.pedestrians,
-      gangMembers: options.gangMembers,
-      cops: options.cops,
-      policeCars: options.policeCars,
-      fireTrucks: options.fireTrucks,
-    });
+    this.world = createWorld(generateCity(options.seed), options.seed, options.city);
     this.match = new Match(options.match, this.world);
     this.emptySince = this.world.tick;
   }
@@ -115,6 +99,7 @@ export class GameRoom {
       players: this.players.size,
       maxPlayers: MAX_PLAYERS_PER_ROOM,
       phase: this.match.state.phase,
+      police: this.world.policeMode,
     };
   }
 

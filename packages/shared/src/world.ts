@@ -1,4 +1,4 @@
-import { collectPickups, spawnPickup, stepProjectiles, updateWeapons, type GameEvent, type Pickup, type Projectile } from './combat';
+import { collectPickups, spawnBribe, spawnPickup, stepProjectiles, updateWeapons, type GameEvent, type Pickup, type Projectile } from './combat';
 import { PED_MAX_HEALTH, damageCar, damagePed, isDead, updateLifecycle } from './damage';
 import { NO_INPUT, type PlayerInput } from './input';
 import { ejectDriver, maintainPedestrians, stepPedestrians, type PedestrianState } from './pedestrians';
@@ -9,7 +9,7 @@ import { TICK_DT, secondsToTicks } from './time';
 import { CAR_MODELS, type CarModel, type CarModelId } from './vehicles';
 import type { Grudge } from './gangs';
 import { stepFire } from './fire';
-import { reportCrime, stepPolice, type WantedRecord } from './police';
+import { reportCrime, stepPolice, type PoliceMode, type WantedRecord } from './police';
 import type { WeaponId } from './weapons';
 
 /**
@@ -82,8 +82,10 @@ export interface Ped {
   /** A gang member's gang (a number from gangs.ts); 0 for everyone else. */
   gang: number;
   look: PedLook;
-  /** A player's wanted level: 0, or 1 while the police are after them (see police.ts). */
+  /** A player's wanted level: 0, or 1–6 stars while the police are after them (see police.ts). */
   wanted: number;
+  /** A player being arrested: how far a cop has got, from 0 (not at all) to 1 (busted). */
+  beingArrested: number;
   /** A pedestrian's walking state; null for players. */
   ai: PedestrianState | null;
 }
@@ -145,6 +147,8 @@ export interface World {
   policeCarTarget: number;
   /** How many fire trucks can be out at once (0: no fire brigade). */
   fireTruckTarget: number;
+  /** Whether there are police, and how far they go (see police.ts). */
+  policeMode: PoliceMode;
   /** Players the police are after, until when (see police.ts). */
   wanted: WantedRecord[];
   /** Gangs angry with players who hurt their members (see gangs.ts). */
@@ -164,9 +168,11 @@ export interface WorldOptions {
   policeCars?: number;
   /** Number of fire trucks that can be out at once. */
   fireTrucks?: number;
+  /** Police on (the default), without the army, or off: then no cops or police cars at all. */
+  police?: PoliceMode;
 }
 
-export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians = 0, gangMembers = 0, cops = 0, policeCars = 0, fireTrucks = 0 }: WorldOptions = {}): World {
+export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians = 0, gangMembers = 0, cops = 0, policeCars = 0, fireTrucks = 0, police = 'on' }: WorldOptions = {}): World {
   const world: World = {
     tick: 0,
     map,
@@ -181,14 +187,16 @@ export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians 
     trafficTarget: traffic,
     pedestrianTarget: pedestrians,
     gangTarget: gangMembers,
-    copTarget: cops,
-    policeCarTarget: policeCars,
+    copTarget: police === 'off' ? 0 : cops,
+    policeCarTarget: police === 'off' ? 0 : policeCars,
+    policeMode: police,
     fireTruckTarget: fireTrucks,
     wanted: [],
     grudges: [],
   };
   for (const spawn of map.carSpawns) spawnRandomCar(world, spawn);
   for (const spawn of map.pickupSpawns) spawnPickup(world, spawn.weapon, spawn.x, spawn.y);
+  if (police !== 'off') for (const spawn of map.bribeSpawns) spawnBribe(world, spawn.x, spawn.y);
   return world;
 }
 
@@ -251,6 +259,7 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
     gang: 0,
     look: PLAYER_LOOKS[players % PLAYER_LOOKS.length]!,
     wanted: 0,
+    beingArrested: 0,
     ai: null,
   };
   world.peds.set(ped.id, ped);
@@ -380,9 +389,10 @@ function tryEnterCar(world: World, ped: Ped): boolean {
       const cop = ejectDriver(world, best, ped, 'cop', side);
       if (cop) cop.ai!.waitTicks = HIJACKED_COP_STUN_TICKS; // a moment to get away
     }
-    reportCrime(world, ped.id);
+    reportCrime(world, ped.id, 'stealPoliceCar');
   } else if (best.traffic) {
     ejectDriver(world, best, ped);
+    reportCrime(world, ped.id, 'carjacking');
   }
   best.traffic = null;
   best.siren = false;
@@ -599,8 +609,8 @@ function collideCars(world: World, a: Car, b: Car): void {
   const approach = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
   // Ramming a police car (more than a touch) is a crime: the police are after you at once.
   if (-approach > POLICE_BUMP_SPEED) {
-    if (a.police && !a.wrecked) reportCrime(world, b.driverId);
-    if (b.police && !b.wrecked) reportCrime(world, a.driverId);
+    if (a.police && !a.wrecked) reportCrime(world, b.driverId, 'assaultPolice');
+    if (b.police && !b.wrecked) reportCrime(world, a.driverId, 'assaultPolice');
   }
   if (-approach > CRASH_SAFE_SPEED) {
     // Both cars get hurt; each driver gets the credit for what they did to the other car.

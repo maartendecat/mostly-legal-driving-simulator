@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   canPickUpWeapons,
   carSpeed,
+  isBusted,
   isPickupAvailable,
   type BlockMap,
   type Car,
@@ -79,15 +80,19 @@ export class GameRenderer {
     for (const car of world.cars.values()) this.place(this.carViews.get(car.id)!, car, transforms.get(car.id) ?? car, frameDt);
     for (const ped of world.peds.values()) {
       const view = this.pedViews.get(ped.id)!;
-      view.object.visible = ped.carId === null;
+      // Not drawn: sitting in a car, or arrested and taken away.
+      view.object.visible = ped.carId === null && !isBusted(ped);
       this.place(view, ped, transforms.get(ped.id) ?? ped, frameDt);
     }
     for (const p of world.projectiles.values()) this.place(this.projectileViews.get(p.id)!, p, transforms.get(p.id) ?? p, frameDt);
     const me = focusPedId === null ? undefined : world.peds.get(focusPedId);
-    const usable = !me || canPickUpWeapons(world, me);
+    const weaponsUsable = !me || canPickUpWeapons(world, me);
+    // Cop bribes only do anything for you while the police are after you.
+    const bribesUsable = !me || me.wanted > 0;
     for (const pickup of world.pickups.values()) {
       const view = this.pickupViews.get(pickup.id)!;
       view.object.visible = isPickupAvailable(world, pickup);
+      const usable = pickup.kind === 'bribe' ? bribesUsable : weaponsUsable;
       this.place(view, { pickup, usable }, { x: pickup.x, y: pickup.y, heading: 0 }, frameDt);
     }
     this.updateEffects(events, frameDt);
