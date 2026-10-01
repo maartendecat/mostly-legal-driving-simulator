@@ -40,7 +40,8 @@ for none). Traffic drives on the right, turns at
 random at intersections, takes turns crossing them, stops for people and cars and drives around
 parked ones. Parked cars stand on the kerb. Jump into a traffic car and it's yours. Pedestrians
 stroll the pavements, cross the road when it's clear, and run for it when there's shooting or a car
-comes at them. Each gang (The Suits, The Lab Rats, The Undead) hangs around its own turf, armed:
+comes at them. Coming across a body they stop and stare, or hurry away; cops come over for a look.
+Each gang (The Suits, The Lab Rats, The Undead) hangs around its own turf, armed:
 hurt one of them and the whole gang is after you for a while. Cops patrol the city.
 
 Online games are matches in one of GTA2's three modes:
@@ -172,7 +173,7 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 ### Part A: a living city (in progress)
 
 1. ✅ More kinds of people: gangs, cops, and more variety among pedestrians
-2. Pedestrians reacting to bodies
+2. ✅ Pedestrians reacting to bodies
 3. Traffic drivers stepping out when a player takes their car
 4. Fire trucks that come when fire breaks out (exploding cars)
 5. Police as a game option: first an analysis of how they should behave (minor crimes only when a

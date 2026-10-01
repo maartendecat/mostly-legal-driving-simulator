@@ -227,7 +227,7 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
 export function cloneWorld(world: World): World {
   return {
     ...world,
-    peds: new Map([...world.peds].map(([id, ped]) => [id, { ...ped, ammo: { ...ped.ammo }, ai: ped.ai && { ...ped.ai, target: { ...ped.ai.target }, panicFrom: ped.ai.panicFrom && { ...ped.ai.panicFrom }, panicPath: ped.ai.panicPath && { ...ped.ai.panicPath } } }])),
+    peds: new Map([...world.peds].map(([id, ped]) => [id, { ...ped, ammo: { ...ped.ammo }, ai: ped.ai && { ...ped.ai, target: { ...ped.ai.target }, panicFrom: ped.ai.panicFrom && { ...ped.ai.panicFrom }, panicPath: ped.ai.panicPath && { ...ped.ai.panicPath }, lookAt: ped.ai.lookAt && { ...ped.ai.lookAt }, seenBodies: [...ped.ai.seenBodies] } }])),
     cars: new Map([...world.cars].map(([id, car]) => [id, { ...car, traffic: car.traffic && { ...car.traffic, route: car.traffic.route.map((p) => ({ ...p })) } }])),
     projectiles: new Map([...world.projectiles].map(([id, p]) => [id, { ...p }])),
     pickups: new Map([...world.pickups].map(([id, p]) => [id, { ...p }])),

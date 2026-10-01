@@ -245,6 +245,12 @@ kinds: **civilians** (described first), **gang members** and **cops** (further d
   car heading straight at them (faster than 4, within 4.5 blocks, its path within 0.8 of them) makes
   them jump sideways out of its path, onto the road if need be. Afterwards they walk back to the
   nearest pavement, avoiding the traffic lanes where possible.
+- **Bodies:** a body within 4 blocks, in plain sight, that they haven't noticed before makes a
+  civilian stop and stare at it for 1.5–3.5 s, facing it (60%), or hurry away as if from danger
+  (40%). Not while running, crossing the road or already staring. Each remembers the last 4 bodies
+  they noticed (or saw being killed, which makes them run anyway), so a body startles them once.
+  Measured with 15 bodies in 5 busy cities over 20 s: 11 passers-by stared, 4 hurried away, 4 cops
+  came to look, nobody got stuck looking.
 - **Not players:** they can't pick up weapons or enter cars; no frags (killing one is worth 10 points
   in Points mode, a gang member 20, a cop 50); no ring, arrow, name tag or kill feed line (unless they
   kill a player: then the feed names their gang, or "A cop").
@@ -273,8 +279,9 @@ kinds: **civilians** (described first), **gang members** and **cops** (further d
   to a hurt member: first hit after about 3 s, dead after about 9 s (median of 12 runs): enough time
   to run, deadly if you don't.
 
-**Cops** walk the whole city like civilians, armed and fearless, in navy. What they do about crime
-(and the army) is the police option, still to come.
+**Cops** walk the whole city like civilians, armed and fearless, in navy. A body they notice they
+walk straight over to (to within 1 block) and look at for 4 s, then carry on. What they do about
+crime (and the army) is the police option, still to come. Gang members ignore bodies.
 
 - **Network:** their walking state isn't sent; like traffic they only go to nearby players, and so do
   their deaths.
@@ -472,8 +479,7 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 
 ## 17. Known limitations and next steps
 
-- Traffic drivers who step out (as pedestrians) when you take their car; pedestrians reacting to
-  bodies they walk past; fire trucks; the police option (cops reacting to crime, then the army).
+- Traffic drivers who step out (as pedestrians) when you take their car; fire trucks; the police option (cops reacting to crime, then the army).
 - Gang members don't drive, don't fight each other, and chase in a straight line (no path finding).
 - Points popping up where they're earned, like GTA2.
 - Traffic only on generated cities; no traffic lights.

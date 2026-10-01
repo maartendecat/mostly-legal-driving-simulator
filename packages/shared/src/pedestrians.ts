@@ -10,8 +10,10 @@ import { carSpeed, pedCollides, spawnPed, type Ped, type PedKind, type PedLook, 
 /**
  * Pedestrians: the people walking around the city. They stroll along the pavements cell by cell,
  * turn at corners, stop now and then, and sometimes cross the road (after checking for traffic).
- * Gunfire, explosions, bodies or a car speeding at them make them run away for a while. They can
- * be shot and run over; bodies are cleared after a while and new pedestrians appear out of sight.
+ * Gunfire, explosions, someone getting killed or a car speeding at them make them run away for a
+ * while. Coming across a body, they stop and stare, or hurry away; cops go over for a closer look.
+ * They can be shot and run over; bodies are cleared after a while and new pedestrians appear out
+ * of sight.
  *
  * Besides ordinary civilians there are gang members and cops. Neither panics (though they do jump
  * out of the way of cars). Gang members stay on their gang's turf, armed; when their gang holds a
@@ -39,6 +41,11 @@ export interface PedestrianState {
   lastDistance: number;
   /** A gang member with someone in their sights: ticks spent aiming so far. */
   aimTicks: number;
+  /** The bodies they've already noticed (the most recent few), so each one only startles them once. */
+  seenBodies: number[];
+  /** Something they're staring at while standing still (a body), or walking over to (`approach`). */
+  lookAt: { x: number; y: number } | null;
+  approach: boolean;
 }
 
 const WALK_SPEED = 1.4;
@@ -73,6 +80,17 @@ const GANG_SHOT_TICKS = secondsToTicks(1.25);
 const GANG_AIM_ERROR = 0.16;
 /** Police blue, for asset packs that colour people. */
 export const COP_COLOR = 0x1e40af;
+/** Bodies this close (in blocks, in plain sight) get noticed by passers-by. */
+const BODY_NOTICE_RANGE = 4;
+/** The chance a civilian hurries away from a body instead of stopping to stare at it... */
+const BODY_FLEE_CHANCE = 0.4;
+/** ...for 1.5 to 3.5 s. */
+const STARE_TICKS = secondsToTicks(1.5);
+const STARE_EXTRA_TICKS = secondsToTicks(2);
+/** A cop walks up to within this distance of a body, then looks at it for a while. */
+const COP_INSPECT_DISTANCE = 1;
+const COP_INSPECT_TICKS = secondsToTicks(4);
+const SEEN_BODIES_REMEMBERED = 4;
 /** A distance further than any target, for "no progress measured yet". */
 const FAR = 1e6;
 
@@ -98,19 +116,50 @@ export function spawnPedestrian(world: World, cx: number, cy: number, kind: Excl
   }
   const dir = randomInt(world, 4);
   ped.heading = DIRECTIONS[dir]!.heading;
-  ped.ai = { dir, target: { x: cx + 0.5, y: cy + 0.5 }, waitTicks: 0, panicTicks: 0, panicFrom: null, panicPath: null, crossing: false, stuckTicks: 0, lastDistance: FAR, aimTicks: 0 };
+  ped.ai = { dir, target: { x: cx + 0.5, y: cy + 0.5 }, waitTicks: 0, panicTicks: 0, panicFrom: null, panicPath: null, crossing: false, stuckTicks: 0, lastDistance: FAR, aimTicks: 0, seenBodies: [], lookAt: null, approach: false };
   return ped;
 }
 
 /** Moves every pedestrian for one tick. Runs after projectiles, so it sees this tick's events. */
 export function stepPedestrians(world: World, dt: number): void {
   expireGrudges(world);
+  const bodies = [...world.peds.values()].filter(isDead);
   for (const ped of world.peds.values()) {
     const ai = ped.ai;
     if (!ai || ped.respawnAt !== null || ped.carId !== null) continue;
     if (ped.kind === 'gangster' && fightGrudge(world, ped, ai, dt)) continue;
     noticeDanger(world, ped, ai);
+    // Gang members have seen it all before.
+    if (bodies.length > 0 && ped.kind !== 'gangster') noticeBodies(world, ped, ai, bodies);
     walk(world, ped, ai, dt);
+  }
+}
+
+/**
+ * A body nearby that they haven't noticed yet: a civilian stops to stare at it (or, sometimes,
+ * hurries away); a cop walks over for a closer look. Not while they're busy running, crossing the
+ * road or already looking at something.
+ */
+function noticeBodies(world: World, ped: Ped, ai: PedestrianState, bodies: readonly Ped[]): void {
+  if (ai.panicTicks > 0 || ai.crossing || ai.lookAt) return;
+  const body = bodies.find(
+    (b) =>
+      b.id !== ped.id &&
+      !ai.seenBodies.includes(b.id) &&
+      Math.hypot(b.x - ped.x, b.y - ped.y) < BODY_NOTICE_RANGE &&
+      lineOfSight(world.map, ped.x, ped.y, b.x, b.y),
+  );
+  if (!body) return;
+  ai.seenBodies = [...ai.seenBodies, body.id].slice(-SEEN_BODIES_REMEMBERED);
+  if (ped.kind === 'cop') {
+    ai.lookAt = { x: body.x, y: body.y };
+    ai.approach = true;
+    ai.waitTicks = 0;
+  } else if (nextRandom(world) < BODY_FLEE_CHANCE) {
+    startPanic(world, ped, ai, { x: body.x, y: body.y }, null, PANIC_TICKS);
+  } else {
+    ai.lookAt = { x: body.x, y: body.y };
+    ai.waitTicks = STARE_TICKS + randomInt(world, STARE_EXTRA_TICKS);
   }
 }
 
@@ -219,7 +268,10 @@ function noticeDanger(world: World, ped: Ped, ai: PedestrianState): void {
   const fearless = ped.kind !== 'civilian';
   for (const event of world.events) {
     if (fearless) break;
-    if (event.type !== 'carDestroyed' && event.type !== 'gangAngry' && near(event.x, event.y)) source = { x: event.x, y: event.y };
+    if (event.type === 'carDestroyed' || event.type === 'gangAngry' || !near(event.x, event.y)) continue;
+    source = { x: event.x, y: event.y };
+    // Saw them die: running already, no need to be startled by the body again later.
+    if (event.type === 'death') ai.seenBodies = [...ai.seenBodies, event.pedId].slice(-SEEN_BODIES_REMEMBERED);
   }
   for (const projectile of world.projectiles.values()) {
     if (fearless) break;
@@ -239,20 +291,31 @@ function noticeDanger(world: World, ped: Ped, ai: PedestrianState): void {
     source = { x: car.x, y: car.y };
     path = { x: car.vx / speed, y: car.vy / speed };
   }
-  if (!source) return;
+  if (source) startPanic(world, ped, ai, source, path, fearless ? DODGE_TICKS : PANIC_TICKS);
+}
+
+/** Run from `source` (or out of `path`, a car's direction) for `ticks`, dropping everything else. */
+function startPanic(world: World, ped: Ped, ai: PedestrianState, source: { x: number; y: number }, path: { x: number; y: number } | null, ticks: number): void {
   const startled = ai.panicTicks === 0;
-  ai.panicTicks = fearless ? DODGE_TICKS : PANIC_TICKS;
+  ai.panicTicks = ticks;
   ai.panicFrom = source;
   ai.panicPath = path;
   ai.waitTicks = 0;
   ai.crossing = false;
+  ai.lookAt = null;
+  ai.approach = false;
   if (startled) chooseNext(world, ped, ai); // run at once, don't finish the step first
 }
 
 function walk(world: World, ped: Ped, ai: PedestrianState, dt: number): void {
   if (ai.panicTicks > 0 && --ai.panicTicks === 0) ai.panicFrom = ai.panicPath = null;
+  if (ai.approach && ai.lookAt) {
+    inspect(world, ped, ai, dt);
+    return;
+  }
   if (ai.waitTicks > 0) {
-    ai.waitTicks--;
+    if (ai.lookAt) face(ped, ai.lookAt.x, ai.lookAt.y, dt);
+    if (--ai.waitTicks === 0) ai.lookAt = null;
     return;
   }
   let dx = ai.target.x - ped.x;
@@ -267,10 +330,7 @@ function walk(world: World, ped: Ped, ai: PedestrianState, dt: number): void {
   if (distance < 1e-6) return;
 
   // Face where they're going (turning quickly but not instantly), and step that way.
-  const wanted = Math.atan2(dy, dx);
-  const turn = wrapAngle(wanted - ped.heading);
-  const maxTurn = TURN_RATE * dt;
-  ped.heading = wrapAngle(ped.heading + Math.max(-maxTurn, Math.min(maxTurn, turn)));
+  face(ped, ai.target.x, ai.target.y, dt);
   const speed = ai.panicTicks > 0 ? RUN_SPEED : (ai.crossing ? CROSSING_SPEED : WALK_SPEED) * PACE[ped.look];
   const step = Math.min(speed * dt, distance);
   const sx = (dx / distance) * step;
@@ -287,6 +347,38 @@ function walk(world: World, ped: Ped, ai: PedestrianState, dt: number): void {
     ai.dir = randomInt(world, 4);
     chooseNext(world, ped, ai);
   }
+}
+
+/** Turns towards a point, quickly but not instantly. */
+function face(ped: Ped, x: number, y: number, dt: number): void {
+  const turn = wrapAngle(Math.atan2(y - ped.y, x - ped.x) - ped.heading);
+  const maxTurn = TURN_RATE * dt;
+  ped.heading = wrapAngle(ped.heading + Math.max(-maxTurn, Math.min(maxTurn, turn)));
+}
+
+/**
+ * A cop walking straight over to a body; once close (or blocked), they stand and look at it for a
+ * while, then carry on from where they are.
+ */
+function inspect(world: World, ped: Ped, ai: PedestrianState, dt: number): void {
+  const target = ai.lookAt!;
+  const distance = Math.hypot(target.x - ped.x, target.y - ped.y);
+  if (distance <= COP_INSPECT_DISTANCE || ai.stuckTicks > 45) {
+    ai.approach = false;
+    ai.stuckTicks = 0;
+    ai.waitTicks = COP_INSPECT_TICKS;
+    ai.target = { x: Math.floor(ped.x) + 0.5, y: Math.floor(ped.y) + 0.5 };
+    ai.lastDistance = FAR;
+    return;
+  }
+  face(ped, target.x, target.y, dt);
+  const step = Math.min(WALK_SPEED * PACE[ped.look] * dt, distance);
+  const sx = ((target.x - ped.x) / distance) * step;
+  const sy = ((target.y - ped.y) / distance) * step;
+  if (!pedCollides(world.map, ped.x + sx, ped.y)) ped.x += sx;
+  if (!pedCollides(world.map, ped.x, ped.y + sy)) ped.y += sy;
+  ai.stuckTicks = distance < ai.lastDistance - step * 0.5 ? 0 : ai.stuckTicks + 1;
+  ai.lastDistance = distance;
 }
 
 /** Picks the next cell to walk to (and sometimes decides to stop for a moment). */
