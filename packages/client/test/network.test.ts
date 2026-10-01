@@ -29,6 +29,15 @@ async function play(sessions: NetworkSession[], ms: number, input: (s: NetworkSe
   return events;
 }
 
+/**
+ * Puts a player close by (on the same road, 10 blocks south): players only get what's around them,
+ * so to see someone's bullets you have to be near them.
+ */
+async function standNearby(session: NetworkSession) {
+  Object.assign(server.world.peds.get(session.myPedId)!, { x: 2.5, y: 20.5 });
+  await play([session], 150);
+}
+
 /** Arms a player on the server and puts them in the centre lane of the westernmost road. */
 async function armOnServer(session: NetworkSession, heading: number) {
   const ped = server.world.peds.get(session.myPedId)!;
@@ -45,6 +54,7 @@ test('your own shots appear instantly, exactly once, and other players see them 
   const alice = await NetworkSession.connect(url, { name: 'Alice', lagMs: 150 });
   const bob = await NetworkSession.connect(url, { name: 'Bob' });
   await armOnServer(alice, Math.PI / 2); // north, along the empty road
+  await standNearby(bob);
 
   // One frame with fire held: the bullet is there straight away, although the server can't have
   // seen the input yet (150 ms simulated lag).
@@ -70,6 +80,7 @@ test('impacts reach both players: the shooter at once, others in step with what 
   const alice = await NetworkSession.connect(url, { name: 'Alice' });
   const bob = await NetworkSession.connect(url, { name: 'Bob' });
   await armOnServer(alice, Math.PI); // west, into the city's edge wall 1.5 blocks away
+  await standNearby(bob);
 
   alice.update(TICK_DT, () => ({ ...NO_INPUT, fire: true }));
   const events = await play([alice, bob], 500);

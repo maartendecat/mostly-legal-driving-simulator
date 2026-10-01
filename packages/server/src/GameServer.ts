@@ -24,6 +24,8 @@ export interface GameServerOptions {
   maxRooms?: number;
   /** Folder with the built client to serve over HTTP on the same port (production). */
   staticDir?: string;
+  /** Traffic cars per room (default: none). */
+  traffic?: number;
 }
 
 const DEFAULT_EMPTY_ROOM_TICKS = secondsToTicks(60);
@@ -60,6 +62,7 @@ export class GameServer {
       seed: options.seed,
       match: { ...DEFAULT_MATCH_SETTINGS, ...options.match },
       permanent: true,
+      traffic: options.traffic ?? 0,
     });
     // One port for everything: the game page (if built), a health check, and the game connections.
     const serveStatic = options.staticDir ? staticFileHandler(options.staticDir) : null;
@@ -170,6 +173,7 @@ export class GameServer {
       seed: randomBytes(4).readUInt32LE(0),
       match: { ...DEFAULT_MATCH_SETTINGS, modes: [settings.mode], scoreLimits, timeLimitTicks },
       permanent: false,
+      traffic: this.options.traffic ?? 0,
     });
   }
 

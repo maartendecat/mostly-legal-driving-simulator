@@ -22,11 +22,14 @@ const minutes = Number(process.env.TIME_LIMIT ?? DEFAULT_MATCH_SETTINGS.timeLimi
 const builtClient = fileURLToPath(new URL('../../client/dist', import.meta.url));
 const staticDir = process.env.STATIC_DIR ?? (existsSync(builtClient) ? builtClient : undefined);
 
-const server = new GameServer({ port, seed, staticDir, match: { modes, scoreLimits, timeLimitTicks: secondsToTicks(minutes * 60) } });
+// TRAFFIC: cars driving around each room's city (0 for none).
+const traffic = Number(process.env.TRAFFIC ?? 16);
+
+const server = new GameServer({ port, seed, staticDir, traffic, match: { modes, scoreLimits, timeLimitTicks: secondsToTicks(minutes * 60) } });
 await server.listening();
 console.log(`Game server listening on port ${server.port} (city seed ${seed})`);
 console.log(staticDir ? `Serving the game at http://localhost:${server.port}` : 'Not serving the game page (run npm run build first, or use the Vite dev server)');
-console.log(`Modes: ${modes.join(' → ')}, ${minutes > 0 ? `${minutes} min` : 'no time limit'} per match`);
+console.log(`Modes: ${modes.join(' → ')}, ${minutes > 0 ? `${minutes} min` : 'no time limit'} per match; ${traffic} traffic cars per room`);
 
 setInterval(() => {
   if (server.playerCount > 0) console.log(`tick ${server.world.tick} · ${server.playerCount} player(s)`);

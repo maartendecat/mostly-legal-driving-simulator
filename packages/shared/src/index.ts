@@ -8,6 +8,7 @@ export * from './match';
 export * from './math';
 export * from './protocol';
 export * from './time';
+export * from './traffic';
 export * from './vehicles';
 export * from './weapons';
 export * from './world';

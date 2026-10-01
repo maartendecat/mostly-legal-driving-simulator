@@ -1,6 +1,7 @@
 import { collectPickups, spawnPickup, stepProjectiles, updateWeapons, type GameEvent, type Pickup, type Projectile } from './combat';
 import { PED_MAX_HEALTH, damageCar, damagePed, isDead, updateLifecycle } from './damage';
 import { NO_INPUT, type PlayerInput } from './input';
+import { maintainTraffic, trafficInput, type TrafficState } from './traffic';
 import { isSolidAt, type BlockMap } from './map';
 import { clamp, nextRandom, randomPick, wrapAngle } from './math';
 import { TICK_DT } from './time';
@@ -81,6 +82,8 @@ export interface Car {
   removeAt: number | null;
   /** Who last damaged the car, credited if it explodes. */
   lastAttackerId: number | null;
+  /** Set while the car is city traffic, driving itself (see traffic.ts). */
+  traffic: TrafficState | null;
 }
 
 export interface World {
@@ -96,9 +99,16 @@ export interface World {
   itPedId: number | null;
   nextId: number;
   rngState: number;
+  /** How many traffic cars to keep driving around (0: none). */
+  trafficTarget: number;
 }
 
-export function createWorld(map: BlockMap, seed = 1): World {
+export interface WorldOptions {
+  /** Number of traffic cars to keep driving around the city. */
+  traffic?: number;
+}
+
+export function createWorld(map: BlockMap, seed = 1, { traffic = 0 }: WorldOptions = {}): World {
   const world: World = {
     tick: 0,
     map,
@@ -110,6 +120,7 @@ export function createWorld(map: BlockMap, seed = 1): World {
     itPedId: null,
     nextId: 1,
     rngState: seed >>> 0,
+    trafficTarget: traffic,
   };
   for (const spawn of map.carSpawns) spawnRandomCar(world, spawn);
   for (const spawn of map.pickupSpawns) spawnPickup(world, spawn.weapon, spawn.x, spawn.y);
@@ -133,6 +144,7 @@ export function spawnCar(world: World, model: CarModelId, x: number, y: number, 
     wrecked: false,
     removeAt: null,
     lastAttackerId: null,
+    traffic: null,
   };
   world.cars.set(car.id, car);
   return car;
@@ -175,7 +187,7 @@ export function cloneWorld(world: World): World {
   return {
     ...world,
     peds: new Map([...world.peds].map(([id, ped]) => [id, { ...ped, ammo: { ...ped.ammo } }])),
-    cars: new Map([...world.cars].map(([id, car]) => [id, { ...car }])),
+    cars: new Map([...world.cars].map(([id, car]) => [id, { ...car, traffic: car.traffic && { ...car.traffic, route: car.traffic.route.map((p) => ({ ...p })) } }])),
     projectiles: new Map([...world.projectiles].map(([id, p]) => [id, { ...p }])),
     pickups: new Map([...world.pickups].map(([id, p]) => [id, { ...p }])),
     events: [],
@@ -217,7 +229,13 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
   }
 
   for (const car of world.cars.values()) {
-    const input = car.driverId === null || car.wrecked ? NO_INPUT : (inputs.get(car.driverId) ?? NO_INPUT);
+    const input = car.wrecked
+      ? NO_INPUT
+      : car.driverId !== null
+        ? (inputs.get(car.driverId) ?? NO_INPUT)
+        : car.traffic
+          ? trafficInput(world, car)
+          : NO_INPUT;
     driveCar(world, car, input, dt);
   }
 
@@ -237,6 +255,7 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
   collectPickups(world);
   stepProjectiles(world, dt);
   updateLifecycle(world);
+  maintainTraffic(world);
 
   world.tick++;
 }
@@ -273,6 +292,7 @@ function tryEnterCar(world: World, ped: Ped): boolean {
   }
   if (!best) return false;
   best.driverId = ped.id;
+  best.traffic = null; // a traffic car's driver hops out and runs off
   ped.carId = best.id;
   return true;
 }

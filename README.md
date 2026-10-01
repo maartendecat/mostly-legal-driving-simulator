@@ -31,6 +31,11 @@ You have 100 health. Bullets, rocket blasts and being run over hurt; at zero you
 respawn 3 seconds later, unarmed. Cars take damage from gunfire and hard crashes, start smoking,
 then burn and explode (get out in time!) and leave a wreck that's replaced after 30 seconds.
 
+The city has traffic (16 cars per room by default; `TRAFFIC=30 npm run server`, or `0` for none).
+Traffic drives on the right, turns at random at intersections, takes turns crossing them, stops for
+people and cars and drives around parked ones. Parked cars stand on the kerb. Jump into a traffic
+car and it's yours.
+
 Online games are matches in one of GTA2's three modes:
 
 - **Frag**: +1 for every kill, −1 for killing yourself. First to 10 frags wins.
@@ -75,7 +80,8 @@ With Fly.io, for example: `fly launch` (it finds the Dockerfile; internal port 8
 
 - Rooms live in the server's memory: run exactly **one** instance, and a restart ends all games.
 - `GET /healthz` returns `{ ok, rooms, players }` for health checks.
-- The same environment variables apply (`MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `SEED`, `PORT`).
+- The same environment variables apply (`MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `TRAFFIC`, `SEED`,
+  `PORT`).
 - After joining a room, the address bar is an invite link (`…/#room=abc123`): send it to friends
   and they land in the same room.
 
@@ -158,7 +164,8 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 
 - ✅ Walking animation for people, like GTA2's (feet stepping out, body swaying)
 - Jumping (GTA2's Space on foot)
-- A livelier city: traffic driving around and pedestrians walking the pavements
+- A livelier city: ✅ traffic; still to do: pedestrians walking the pavements (and traffic drivers
+  that step out when you take their car)
 - Points popping up where they're earned, like GTA2 (a car exploding, damage done, kills)
 - In-browser map editor (started, then postponed; unfinished work in `git stash`)
 - Classic pack: load your own GTA2 files in the browser

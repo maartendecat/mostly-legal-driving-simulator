@@ -18,6 +18,26 @@ export const RoadMarking = {
   CenterVertical: 2,
 } as const;
 
+/**
+ * Traffic lanes: which way traffic flows through a road cell, as a bit per direction, plus a bit
+ * for intersections (where cars pick a way to go). Cells without bits carry no traffic.
+ */
+export const Lane = {
+  East: 1,
+  North: 2,
+  West: 4,
+  South: 8,
+  Intersection: 16,
+} as const;
+
+/** The four driving directions, in the order of their Lane bits (East = bit 0, ...). */
+export const DIRECTIONS = [
+  { dx: 1, dy: 0, heading: 0 },
+  { dx: 0, dy: 1, heading: Math.PI / 2 },
+  { dx: -1, dy: 0, heading: Math.PI },
+  { dx: 0, dy: -1, heading: -Math.PI / 2 },
+] as const;
+
 export interface CarSpawn {
   x: number;
   y: number;
@@ -41,6 +61,8 @@ export interface BlockMap {
   kinds: Uint8Array;
   levels: Uint8Array;
   variants: Uint8Array;
+  /** Traffic lanes per cell (see Lane). All zero on maps without traffic. */
+  lanes: Uint8Array;
   pedSpawns: Vec2[];
   carSpawns: CarSpawn[];
   pickupSpawns: PickupSpawn[];
@@ -54,6 +76,7 @@ export function createMap(width: number, height: number): BlockMap {
     kinds: new Uint8Array(size),
     levels: new Uint8Array(size),
     variants: new Uint8Array(size),
+    lanes: new Uint8Array(size),
     pedSpawns: [],
     carSpawns: [],
     pickupSpawns: [],
@@ -80,6 +103,10 @@ export function kindAt(map: BlockMap, cx: number, cy: number): BlockKind {
 export function isSolidCell(map: BlockMap, cx: number, cy: number): boolean {
   const kind = kindAt(map, cx, cy);
   return kind === Block.Building || kind === Block.Water;
+}
+
+export function laneAt(map: BlockMap, cx: number, cy: number): number {
+  return inBounds(map, cx, cy) ? map.lanes[cy * map.width + cx]! : 0;
 }
 
 export function isSolidAt(map: BlockMap, x: number, y: number): boolean {

@@ -55,7 +55,10 @@ test('each client gets its own ped and sees the other players', async () => {
 
   const snapshot = await a.next('snapshot', (s) => s.peds.some((p) => p.id === welcomeB.pedId));
   assert.ok(snapshot.peds.some((p) => p.id === welcomeA.pedId));
-  assert.ok(snapshot.cars.length > 10);
+  // Only the cars around the player (see interest.ts), but some are always nearby in this city.
+  const me = snapshot.peds.find((p) => p.id === welcomeA.pedId)!;
+  assert.ok(snapshot.cars.length > 0);
+  assert.ok(snapshot.cars.every((c) => Math.abs(c.x - me.x) <= 16 && Math.abs(c.y - me.y) <= 16));
 
   b.close();
   await a.next('snapshot', (s) => s.tick > snapshot.tick && !s.peds.some((p) => p.id === welcomeB.pedId));

@@ -2,6 +2,8 @@ import { TICK_DT, createWorld, generateCity, spawnPed, stepWorld, type GameEvent
 import { captureTransforms, interpolateTransforms, type TransformSnapshot } from '../render/transforms';
 import type { FrameState, GameSession } from './GameSession';
 
+const OFFLINE_TRAFFIC = 16;
+
 /** Single-player: runs the shared simulation in the browser at the fixed tick rate. */
 export class LocalSession implements GameSession {
   readonly world: World;
@@ -15,7 +17,7 @@ export class LocalSession implements GameSession {
     seed: number,
     readonly status = 'Offline',
   ) {
-    this.world = createWorld(generateCity(seed), seed);
+    this.world = createWorld(generateCity(seed), seed, { traffic: OFFLINE_TRAFFIC });
     this.myPedId = spawnPed(this.world).id;
     this.players = [{ pedId: this.myPedId, name: 'You', frags: 0, deaths: 0, points: 0, itTicks: 0 }];
     this.previous = captureTransforms(this.world);

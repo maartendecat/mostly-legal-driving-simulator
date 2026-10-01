@@ -1,4 +1,4 @@
-import { Block, RoadMarking, createMap, setCell, type BlockKind, type BlockMap, type CarSpawn, type PickupSpawn } from './map';
+import { Block, DIRECTIONS, Lane, RoadMarking, createMap, setCell, type BlockKind, type BlockMap, type CarSpawn, type PickupSpawn } from './map';
 import { randomInt, nextRandom, randomPick, type Vec2 } from './math';
 import type { WeaponId } from './weapons';
 
@@ -39,6 +39,12 @@ export function generateCity(seed: number, blocks = 6): BlockMap {
         if (horizontalRoad && !verticalRoad && ly === 1) marking = RoadMarking.CenterHorizontal;
         if (verticalRoad && !horizontalRoad && lx === 1) marking = RoadMarking.CenterVertical;
         setCell(map, x, y, Block.Road, 0, marking);
+        // Right-hand traffic: the outer rows/columns of each road are lanes, the middle one isn't.
+        let lane = 0;
+        if (horizontalRoad && verticalRoad) lane = Lane.Intersection;
+        else if (horizontalRoad) lane = ly === 0 ? Lane.East : ly === 2 ? Lane.West : 0;
+        else lane = lx === 2 ? Lane.North : lx === 0 ? Lane.South : 0;
+        map.lanes[y * size + x] = lane;
       } else if (lx === ROAD || lx === PERIOD - 1 || ly === ROAD || ly === PERIOD - 1) {
         setCell(map, x, y, Block.Pavement);
       } else {
@@ -92,21 +98,21 @@ function fillRect(map: BlockMap, x0: number, y0: number, w: number, h: number, k
   }
 }
 
-/** Cars start parked in the right-hand lane, facing the direction of traffic. */
+/**
+ * Parked cars stand on the pavement along the right-hand kerb, facing the direction of traffic:
+ * easy to find and steal, and out of the way of the traffic driving past.
+ */
 function pickCarSpawns(map: BlockMap, rng: { rngState: number }): CarSpawn[] {
   const candidates: CarSpawn[] = [];
   for (let y = 1; y < map.height - 1; y++) {
     for (let x = 1; x < map.width - 1; x++) {
-      const lx = (x - 1) % PERIOD;
-      const ly = (y - 1) % PERIOD;
-      const horizontalRoad = ly < ROAD;
-      const verticalRoad = lx < ROAD;
-      if (horizontalRoad === verticalRoad) continue; // skip intersections and non-road cells
-      if (horizontalRoad && ly !== 1) {
-        candidates.push({ x: x + 0.5, y: y + 0.5, heading: ly === 0 ? 0 : Math.PI });
-      } else if (verticalRoad && lx !== 1) {
-        candidates.push({ x: x + 0.5, y: y + 0.5, heading: lx === 2 ? Math.PI / 2 : -Math.PI / 2 });
-      }
+      const dir = [Lane.East, Lane.North, Lane.West, Lane.South].indexOf(map.lanes[y * map.width + x] as 1 | 2 | 4 | 8);
+      if (dir < 0) continue;
+      const d = DIRECTIONS[dir]!;
+      // The kerb is on the right of the lane: (dy, -dx).
+      const px = x + d.dy;
+      const py = y - d.dx;
+      if (map.kinds[py * map.width + px] === Block.Pavement) candidates.push({ x: px + 0.5, y: py + 0.5, heading: d.heading });
     }
   }
   return pickSpread(candidates, rng, CAR_COUNT, 3);
