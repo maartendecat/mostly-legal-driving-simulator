@@ -41,7 +41,7 @@ test('you see further while driving fast (the camera zooms out)', () => {
   assert.ok(viewFor(world, me.id)!.radius > onFoot + 10);
 });
 
-test("players' deaths and wrecks reach everyone; pedestrians' deaths, sparks and explosions only those nearby", () => {
+test("players' deaths and wrecks reach everyone; a gang's grudge its target; pedestrians' deaths, sparks and explosions only those nearby", () => {
   const { world, me, players } = city();
   const at = (x: number, y: number) => ({ tick: 1, ownerId: 1, x, y });
   const events: GameEvent[] = [
@@ -52,10 +52,12 @@ test("players' deaths and wrecks reach everyone; pedestrians' deaths, sparks and
     { type: 'death', ...at(61, 61), pedId: 999, killerId: 1, cause: 'pistol' }, // a pedestrian, far away
     { type: 'death', ...at(13, 13), pedId: 998, killerId: 1, cause: 'pistol' }, // a pedestrian, nearby
     { type: 'carDestroyed', ...at(60, 60), carId: 3, attackerId: 1 },
+    { type: 'gangAngry', ...at(62, 62), gang: 1, pedId: me.id }, // after me, wherever it happened
+    { type: 'gangAngry', ...at(12, 12), gang: 2, pedId: [...players][1]! }, // after someone else
   ];
   assert.deepEqual(
-    visibleEvents(events, viewFor(world, me.id), players).map((e) => `${e.type}@${e.x}`),
-    ['impact@12', 'death@60', 'death@13', 'carDestroyed@60'],
+    visibleEvents(events, viewFor(world, me.id), players, me.id).map((e) => `${e.type}@${e.x}`),
+    ['impact@12', 'death@60', 'death@13', 'carDestroyed@60', 'gangAngry@62'],
   );
 });
 

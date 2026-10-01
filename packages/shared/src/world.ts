@@ -7,6 +7,7 @@ import { isSolidAt, type BlockMap } from './map';
 import { clamp, nextRandom, randomPick, wrapAngle } from './math';
 import { TICK_DT } from './time';
 import { CAR_MODELS, type CarModel, type CarModelId } from './vehicles';
+import type { Grudge } from './gangs';
 import type { WeaponId } from './weapons';
 
 /**
@@ -39,8 +40,18 @@ const RUN_OVER_DAMAGE = 30;
 
 const CAR_COLORS = [0xc0392b, 0x2980b9, 0xf1c40f, 0x27ae60, 0xecf0f1, 0x8e44ad, 0xe67e22, 0x2c3e50];
 const PED_COLORS = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x1abc9c, 0xff66cc, 0xffffff];
+/** Players' looks, by join order (gangsters and cops look like their gang or the police). */
+const PLAYER_LOOKS: PedLook[] = ['man', 'woman', 'youth', 'worker'];
 /** Weighted: common cars appear more often. */
 const SPAWN_MODELS: CarModelId[] = ['compact', 'compact', 'sedan', 'sedan', 'sedan', 'sports', 'truck'];
+
+/**
+ * Who a ped is: a player, or one of the city's people (who walk on their own, see pedestrians.ts):
+ * ordinary civilians, gang members on their gang's turf, and cops on patrol.
+ */
+export type PedKind = 'player' | 'civilian' | 'gangster' | 'cop';
+/** What a player or civilian looks like. Elderly people walk slower, youths a little faster. */
+export type PedLook = 'man' | 'woman' | 'youth' | 'worker' | 'elder';
 
 export interface Ped {
   id: number;
@@ -61,8 +72,10 @@ export interface Ped {
   enterHeld: boolean;
   /** Same for weapon switching. */
   switchHeld: boolean;
-  /** A player, or one of the city's pedestrians (who walk on their own, see pedestrians.ts). */
-  kind: 'player' | 'pedestrian';
+  kind: PedKind;
+  /** A gang member's gang (a number from gangs.ts); 0 for everyone else. */
+  gang: number;
+  look: PedLook;
   /** A pedestrian's walking state; null for players. */
   ai: PedestrianState | null;
 }
@@ -106,18 +119,28 @@ export interface World {
   rngState: number;
   /** How many traffic cars to keep driving around (0: none). */
   trafficTarget: number;
-  /** How many pedestrians to keep walking around (0: none). */
+  /** How many pedestrians (civilians) to keep walking around (0: none). */
   pedestrianTarget: number;
+  /** How many members each gang keeps on its turf (0: no gangs). */
+  gangTarget: number;
+  /** How many cops to keep patrolling (0: none). */
+  copTarget: number;
+  /** Gangs angry with players who hurt their members (see gangs.ts). */
+  grudges: Grudge[];
 }
 
 export interface WorldOptions {
   /** Number of traffic cars to keep driving around the city. */
   traffic?: number;
-  /** Number of pedestrians to keep walking around the city. */
+  /** Number of pedestrians (civilians) to keep walking around the city. */
   pedestrians?: number;
+  /** Number of members per gang, hanging around on their turf. */
+  gangMembers?: number;
+  /** Number of cops on patrol. */
+  cops?: number;
 }
 
-export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians = 0 }: WorldOptions = {}): World {
+export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians = 0, gangMembers = 0, cops = 0 }: WorldOptions = {}): World {
   const world: World = {
     tick: 0,
     map,
@@ -131,6 +154,9 @@ export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians 
     rngState: seed >>> 0,
     trafficTarget: traffic,
     pedestrianTarget: pedestrians,
+    gangTarget: gangMembers,
+    copTarget: cops,
+    grudges: [],
   };
   for (const spawn of map.carSpawns) spawnRandomCar(world, spawn);
   for (const spawn of map.pickupSpawns) spawnPickup(world, spawn.weapon, spawn.x, spawn.y);
@@ -173,13 +199,14 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
       : world.map.pedSpawns.length > 0
         ? randomPick(world, world.map.pedSpawns)
         : { x: world.map.width / 2, y: world.map.height / 2 };
+  const players = [...world.peds.values()].filter((p) => p.kind === 'player').length;
   const ped: Ped = {
     id: world.nextId++,
     x: spawn.x,
     y: spawn.y,
     heading: nextRandom(world) * Math.PI * 2 - Math.PI,
     carId: null,
-    color: PED_COLORS[[...world.peds.values()].filter((p) => p.kind === 'player').length % PED_COLORS.length]!,
+    color: PED_COLORS[players % PED_COLORS.length]!,
     health: PED_MAX_HEALTH,
     respawnAt: null,
     weapon: null,
@@ -188,6 +215,8 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
     enterHeld: false,
     switchHeld: false,
     kind: 'player',
+    gang: 0,
+    look: PLAYER_LOOKS[players % PLAYER_LOOKS.length]!,
     ai: null,
   };
   world.peds.set(ped.id, ped);
@@ -203,6 +232,7 @@ export function cloneWorld(world: World): World {
     projectiles: new Map([...world.projectiles].map(([id, p]) => [id, { ...p }])),
     pickups: new Map([...world.pickups].map(([id, p]) => [id, { ...p }])),
     events: [],
+    grudges: world.grudges.map((g) => ({ ...g })),
   };
 }
 

@@ -102,6 +102,19 @@ test('pedestrians can be shot; bodies stay for a while, then make way for new pe
   assert.ok(!world.peds.has(victim.id), 'body cleared away');
 });
 
+test('a pedestrian blocked by a parked car on the pavement finds another way', () => {
+  // Walking east along the pavement, into a car parked along the kerb.
+  const { world, ped } = onePedestrian();
+  Object.assign(ped.ai!, { dir: 0, target: { x: ped.x + 1, y: ped.y } });
+  spawnCar(world, 'sedan', ped.x + 1.5, ped.y, 0);
+  const start = { x: ped.x, y: ped.y };
+  let furthest = 0;
+  run(world, secondsToTicks(8), () => {
+    furthest = Math.max(furthest, Math.hypot(ped.x - start.x, ped.y - start.y));
+  });
+  assert.ok(furthest > 2, `got ${furthest.toFixed(1)} blocks away`);
+});
+
 test('pedestrians are not players: no weapons, no frags, a few points', () => {
   const { world, ped } = onePedestrian();
   assert.equal(canPickUpWeapons(world, ped), false);

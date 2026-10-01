@@ -11,6 +11,15 @@ const BORDER_HEIGHT = 6;
 const CAR_COUNT = 28;
 const PED_SPAWN_COUNT = 24;
 const PICKUP_COUNT = 16;
+/**
+ * Gang turf, as city blocks (bx, by) per gang: a 2×2 corner of the city each (north-west,
+ * north-east, south-centre); everything else is neutral. Blocks are counted from the south-west.
+ */
+const GANG_TURF: [gang: number, bx0: number, by0: number][] = [
+  [1, 0, 4],
+  [2, 4, 4],
+  [3, 2, 0],
+];
 /** Weighted: pistols are common, rocket launchers rare. */
 const PICKUP_WEAPONS: WeaponId[] = ['pistol', 'pistol', 'pistol', 'machineGun', 'machineGun', 'rocketLauncher'];
 
@@ -59,6 +68,7 @@ export function generateCity(seed: number, blocks = 6): BlockMap {
     }
   }
 
+  markTurf(map, blocks);
   map.carSpawns = pickCarSpawns(map, rng);
   map.pedSpawns = pickPedSpawns(map, rng);
   map.pickupSpawns = pickPickupSpawns(map, rng);
@@ -95,6 +105,22 @@ function fillLot(map: BlockMap, rng: { rngState: number }, x0: number, y0: numbe
 function fillRect(map: BlockMap, x0: number, y0: number, w: number, h: number, kind: BlockKind, level = 0, variant = 0): void {
   for (let y = y0; y < y0 + h; y++) {
     for (let x = x0; x < x0 + w; x++) setCell(map, x, y, kind, level, variant);
+  }
+}
+
+/** Marks each gang's blocks (their pavements, buildings and parks; not the roads) as its turf. */
+function markTurf(map: BlockMap, blocks: number): void {
+  for (let y = 1; y < map.height - 1; y++) {
+    for (let x = 1; x < map.width - 1; x++) {
+      const lx = (x - 1) % PERIOD;
+      const ly = (y - 1) % PERIOD;
+      if (lx < ROAD || ly < ROAD) continue;
+      const bx = Math.floor((x - 1) / PERIOD);
+      const by = Math.floor((y - 1) / PERIOD);
+      if (bx >= blocks || by >= blocks) continue;
+      const turf = GANG_TURF.find(([, x0, y0]) => bx >= x0 && bx < x0 + 2 && by >= y0 && by < y0 + 2);
+      if (turf) map.territory[y * map.width + x] = turf[0];
+    }
   }
 }
 

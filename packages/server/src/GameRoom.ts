@@ -37,6 +37,10 @@ export interface GameRoomOptions {
   traffic: number;
   /** Pedestrians walking around the city. */
   pedestrians: number;
+  /** Members of each gang hanging around on their turf. */
+  gangMembers: number;
+  /** Cops on patrol. */
+  cops: number;
 }
 
 export interface Player {
@@ -70,7 +74,12 @@ export class GameRoom {
   private emptySince: number | null;
 
   constructor(readonly options: GameRoomOptions) {
-    this.world = createWorld(generateCity(options.seed), options.seed, { traffic: options.traffic, pedestrians: options.pedestrians });
+    this.world = createWorld(generateCity(options.seed), options.seed, {
+      traffic: options.traffic,
+      pedestrians: options.pedestrians,
+      gangMembers: options.gangMembers,
+      cops: options.cops,
+    });
     this.match = new Match(options.match, this.world);
     this.emptySince = this.world.tick;
   }
@@ -184,7 +193,7 @@ export class GameRoom {
     if (player.socket.readyState !== WebSocket.OPEN) return;
     const view = viewFor(this.world, player.pedId);
     const snapshot = visibleSnapshot(full, view, extras.playerPeds);
-    const visible = visibleEvents(events, view, extras.playerPeds);
+    const visible = visibleEvents(events, view, extras.playerPeds, player.pedId);
     const { acks, players, match } = extras;
     const playersJson = JSON.stringify(players);
     const matchJson = JSON.stringify(match);

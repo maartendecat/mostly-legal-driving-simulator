@@ -41,8 +41,10 @@ export const POINTS = {
   kill: 1000,
   suicide: -500,
   carDestroyed: 100,
-  /** Killing one of the city's pedestrians: a little, as in GTA2. */
+  /** Killing one of the city's people: a little, as in GTA2; more for gang members and cops. */
   pedestrian: 10,
+  gangster: 20,
+  cop: 50,
 } as const;
 
 /** What clients need to know about the match; sent in every snapshot. */
@@ -124,8 +126,9 @@ export class Match {
   private scoreDeath(world: World, victimId: number, killerId: number | null): void {
     const victim = this.scores.get(victimId);
     if (!victim) {
-      // Not a player but one of the city's pedestrians: only worth a few points.
-      if (killerId !== null) this.addPoints(killerId, POINTS.pedestrian);
+      // Not a player but one of the city's people: only worth a few points.
+      const kind = world.peds.get(victimId)?.kind;
+      if (killerId !== null) this.addPoints(killerId, kind === 'gangster' ? POINTS.gangster : kind === 'cop' ? POINTS.cop : POINTS.pedestrian);
       return;
     }
     victim.deaths++;

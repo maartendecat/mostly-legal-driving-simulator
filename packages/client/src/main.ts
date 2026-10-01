@@ -7,8 +7,10 @@ import {
   WEAPONS,
   canPickUpWeapons,
   carSpeed,
+  gangName,
   isDead,
   isPickupAvailable,
+  turfAt,
   type GameEvent,
   type Ped,
   type PlayerInfo,
@@ -94,6 +96,7 @@ async function main(): Promise<void> {
     const it = session.match?.mode === 'tag' ? session.world.itPedId : null;
     if (it !== null && it !== lastIt) killFeed.addNewIt(session, it);
     lastIt = it;
+    for (const event of events) if (event.type === 'gangAngry' && event.pedId === session.myPedId) toast.show(`${gangName(event.gang)} are after you!`);
     blockedPickupId = explainBlockedPickup(session, toast, blockedPickupId);
     scoreboard.update(session);
     const others = otherPlayers(session, transforms);
@@ -227,10 +230,12 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
   const weapon = ped?.weapon ? `Weapon: ${WEAPONS[ped.weapon].name} · ${ped.ammo[ped.weapon] ?? 0}` : unarmed;
   const me = session.players.find((p) => p.pedId === session.myPedId);
   const others = session.players.filter((p) => p !== me).map((p) => p.name);
+  const turf = ped ? turfAt(world.map, ped.x, ped.y) : 0;
   return [
     healthLine,
     status,
     weapon,
+    turf ? `Turf of ${gangName(turf)}` : '',
     '',
     'Arrows/WASD  move / steer',
     'Enter or F   get in / out of car',

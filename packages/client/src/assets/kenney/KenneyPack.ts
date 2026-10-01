@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Block, CAR_MODELS, type BlockMap, type Car, type CarModelId, type Ped, type Pickup, type WeaponId } from '@game/shared';
+import { Block, CAR_MODELS, type BlockMap, type Car, type CarModelId, type Ped, type PedLook, type Pickup, type WeaponId } from '@game/shared';
 import type { AssetPack, EntityView, PickupViewState } from '../AssetPack';
 import { BloodPool, CarDamageEffects, WalkAnimation, carDamage, hash } from '../common';
 import { PlaceholderPack, hasDash } from '../placeholder/PlaceholderPack';
@@ -15,7 +15,13 @@ const CAR_VARIANTS: Record<CarModelId, string[]> = {
   truck: ['truck', 'delivery', 'garbage-truck'],
 };
 
-const CHARACTERS = ['manBlue', 'hitman1', 'womanGreen', 'soldier1', 'survivor1', 'manBrown', 'robot1', 'manOld'];
+/** Which Top-down Shooter character plays whom: players and civilians by look, gangs, and cops. */
+const LOOK_CHARACTERS: Record<PedLook, string> = { man: 'manBrown', woman: 'womanGreen', youth: 'survivor1', worker: 'soldier1', elder: 'manOld' };
+const GANG_CHARACTERS = ['hitman1', 'robot1', 'zombie1'];
+const COP_CHARACTER = 'manBlue';
+/** The blue shirt darkened to a police uniform's navy. */
+const COP_TINT = 0x8a9cff;
+const CHARACTERS = [...new Set([...Object.values(LOOK_CHARACTERS), ...GANG_CHARACTERS, COP_CHARACTER])];
 type Pose = 'stand' | 'gun' | 'machine' | 'silencer';
 const POSES: Pose[] = ['stand', 'gun', 'machine', 'silencer'];
 const POSE_FOR_WEAPON: Record<WeaponId, Pose> = { pistol: 'gun', machineGun: 'machine', rocketLauncher: 'silencer' };
@@ -205,7 +211,9 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
 
   override createPedView(ped: Ped): EntityView<Ped> {
     const group = new THREE.Group();
-    const character = CHARACTERS[ped.id % CHARACTERS.length]!;
+    const character =
+      ped.kind === 'gangster' ? (GANG_CHARACTERS[ped.gang - 1] ?? GANG_CHARACTERS[0]!) : ped.kind === 'cop' ? COP_CHARACTER : LOOK_CHARACTERS[ped.look];
+    const tint = new THREE.Color(ped.kind === 'cop' ? COP_TINT : 0xffffff);
     const material = spriteMaterial(this.texture(`people/${character}_stand`));
     const sprite = new THREE.Mesh(this.spriteGeometry, material);
     // The upper body turns around the body's centre, not the sprite's (a gun makes those differ).
@@ -242,7 +250,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
         // Walking: feet step out under the body, which sways along. Dead: lying on the side, darkened.
         const sway = walk.update(dt, group.position.x, group.position.y, group.rotation.z, !dead);
         body.rotation.z = dead ? Math.PI / 2 : sway;
-        material.color.setHex(dead ? 0x707070 : 0xffffff);
+        material.color.copy(tint).multiplyScalar(dead ? 0.44 : 1);
         ring.visible = !dead && state.kind === 'player';
         blood.update(dt, dead);
       },

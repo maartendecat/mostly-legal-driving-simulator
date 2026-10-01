@@ -1,4 +1,5 @@
 import { randomPick } from './math';
+import { provokeGang } from './gangs';
 import { CORPSE_TICKS } from './pedestrians';
 import { secondsToTicks } from './time';
 import { CAR_MODELS } from './vehicles';
@@ -36,12 +37,13 @@ export function isDead(ped: Ped): boolean {
  */
 export function damagePed(world: World, ped: Ped, amount: number, attackerId: number | null, cause: DamageCause): void {
   if (isDead(ped) || amount <= 0) return;
+  if (ped.kind === 'gangster') provokeGang(world, ped, attackerId);
   ped.health -= amount;
   if (ped.health > 0) return;
 
   ped.health = 0;
   // Players come back; a pedestrian's body is cleared away after a while.
-  ped.respawnAt = world.tick + (ped.kind === 'pedestrian' ? CORPSE_TICKS : RESPAWN_TICKS);
+  ped.respawnAt = world.tick + (ped.kind !== 'player' ? CORPSE_TICKS : RESPAWN_TICKS);
   const car = ped.carId === null ? undefined : world.cars.get(ped.carId);
   if (car && car.driverId === ped.id) car.driverId = null;
   ped.carId = null;
@@ -110,7 +112,7 @@ export function explode(
 export function updateLifecycle(world: World): void {
   for (const ped of [...world.peds.values()]) {
     if (ped.respawnAt === null || world.tick < ped.respawnAt) continue;
-    if (ped.kind === 'pedestrian') world.peds.delete(ped.id);
+    if (ped.kind !== 'player') world.peds.delete(ped.id);
     else respawnPed(world, ped);
   }
   for (const car of [...world.cars.values()]) {

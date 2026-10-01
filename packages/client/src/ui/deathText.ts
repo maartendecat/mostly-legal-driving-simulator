@@ -1,4 +1,4 @@
-import type { DamageCause, GameEvent } from '@game/shared';
+import { gangName, type DamageCause, type GameEvent } from '@game/shared';
 import type { GameSession } from '../session/GameSession';
 
 export type DeathEvent = Extract<GameEvent, { type: 'death' }>;
@@ -15,8 +15,14 @@ export function causeName(cause: DamageCause): string {
   return CAUSES[cause];
 }
 
+/** A player's name; for the city's people, their gang or "A cop" (anyone else is "Someone"). */
 export function playerName(session: GameSession, pedId: number | null): string {
-  return session.players.find((p) => p.pedId === pedId)?.name ?? 'Someone';
+  const player = session.players.find((p) => p.pedId === pedId);
+  if (player) return player.name;
+  const ped = pedId === null ? undefined : session.world.peds.get(pedId);
+  if (ped?.kind === 'gangster') return gangName(ped.gang);
+  if (ped?.kind === 'cop') return 'A cop';
+  return 'Someone';
 }
 
 /** What the WASTED screen says about your own death. */

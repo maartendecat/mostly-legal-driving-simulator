@@ -63,6 +63,8 @@ export interface BlockMap {
   variants: Uint8Array;
   /** Traffic lanes per cell (see Lane). All zero on maps without traffic. */
   lanes: Uint8Array;
+  /** Which gang's turf each cell is (a number from gangs.ts), 0 for neutral ground. */
+  territory: Uint8Array;
   pedSpawns: Vec2[];
   carSpawns: CarSpawn[];
   pickupSpawns: PickupSpawn[];
@@ -77,6 +79,7 @@ export function createMap(width: number, height: number): BlockMap {
     levels: new Uint8Array(size),
     variants: new Uint8Array(size),
     lanes: new Uint8Array(size),
+    territory: new Uint8Array(size),
     pedSpawns: [],
     carSpawns: [],
     pickupSpawns: [],

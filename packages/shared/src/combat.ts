@@ -37,6 +37,8 @@ export type GameEvent =
   | { type: 'explosion'; tick: number; ownerId: number; x: number; y: number; radius: number }
   /** `killerId` is null for accidents; `ownerId` is the killer, or the victim if there is none. */
   | { type: 'death'; tick: number; ownerId: number; pedId: number; killerId: number | null; cause: DamageCause; x: number; y: number }
+  /** A gang is now after a player (`pedId`), who hurt one of its members (at x, y). */
+  | { type: 'gangAngry'; tick: number; ownerId: number; gang: number; pedId: number; x: number; y: number }
   /** A car blew up; `attackerId` is who gets the credit (null for accidents). */
   | { type: 'carDestroyed'; tick: number; ownerId: number; carId: number; attackerId: number | null; x: number; y: number };
 
@@ -66,7 +68,7 @@ export function updateWeapons(world: World, ped: Ped, input: PlayerInput, switch
   if (ped.fireCooldown > 0) ped.fireCooldown--;
   if (switchDirection !== 0) cycleWeapon(ped, switchDirection);
   // No drive-bys yet: you can only shoot on foot. (Dead peds never get here.)
-  if (input.fire && ped.carId === null) tryFire(world, ped);
+  if (input.fire && ped.carId === null) fireWeapon(world, ped);
 }
 
 /** Selects the next (or previous) weapon that has ammo; unarmed if there is none. */
@@ -81,7 +83,8 @@ export function cycleWeapon(ped: Ped, direction: number): void {
   ped.weapon = owned[(start + direction + owned.length) % owned.length]!;
 }
 
-function tryFire(world: World, ped: Ped): void {
+/** Fires the weapon in hand along the ped's heading, if it's ready and loaded. */
+export function fireWeapon(world: World, ped: Ped): void {
   if (ped.weapon === null || ped.fireCooldown > 0) return;
   const ammo = ped.ammo[ped.weapon] ?? 0;
   if (ammo <= 0) return;

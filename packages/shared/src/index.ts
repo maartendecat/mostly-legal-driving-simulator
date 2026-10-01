@@ -1,6 +1,7 @@
 export * from './combat';
 export * from './damage';
 export * from './delta';
+export * from './gangs';
 export * from './input';
 export * from './map';
 export * from './mapgen';

@@ -46,12 +46,14 @@ export function visibleSnapshot(snapshot: Snapshot, view: View | null, playerPed
 }
 
 /**
- * Players' deaths and wrecked cars go to everyone (kill feed, scoring); pedestrians' deaths, sparks
- * and explosions only to those who can see them.
+ * Players' deaths and wrecked cars go to everyone (kill feed, scoring); a gang's grudge to the
+ * player it's against; pedestrians' deaths, sparks and explosions only to those who can see them.
  */
-export function visibleEvents(events: readonly GameEvent[], view: View | null, playerPeds: ReadonlySet<number>): GameEvent[] {
+export function visibleEvents(events: readonly GameEvent[], view: View | null, playerPeds: ReadonlySet<number>, viewer: number): GameEvent[] {
   if (!view) return [...events];
-  return events.filter((e) => (e.type === 'death' && playerPeds.has(e.pedId)) || e.type === 'carDestroyed' || sees(view, e.x, e.y));
+  return events.filter(
+    (e) => (e.type === 'death' && playerPeds.has(e.pedId)) || e.type === 'carDestroyed' || (e.type === 'gangAngry' ? e.pedId === viewer : sees(view, e.x, e.y)),
+  );
 }
 
 /** Traffic's and pedestrians' AI state is only needed on the server: don't send it. */

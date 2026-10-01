@@ -62,14 +62,16 @@ flowchart LR
 - **Units:** one block = one map cell = 1 unit. **+x is east, +y is north, +z is up.** Headings are
   radians, 0 = east, counter-clockwise positive.
 - **Entities** (all plain, serializable data in `World`):
-  - `Ped`: a player or one of the city's pedestrians (`kind`). Position, heading, health, current
-    weapon and ammo, `carId` when driving, `respawnAt` when dead, input edge-detection flags, and
-    `ai` (walking state) for pedestrians.
+  - `Ped`: a player or one of the city's people (`kind`: player, civilian, gangster or cop), with
+    `gang` for gang members and `look` (man, woman, youth, worker, elder) for players and civilians.
+    Position, heading, health, current weapon and ammo, `carId` when driving, `respawnAt` when dead,
+    input edge-detection flags, and `ai` (walking state) for the city's people.
   - `Car`: model, position, heading, velocity, health, `driverId`, burning/wreck state,
     `lastAttackerId` (for kill credit), `traffic` (self-driving state) or null.
   - `Projectile`: bullet or rocket in flight. `Pickup`: weapon crate with a respawn time.
-- **Events** (`GameEvent`): impact, explosion, death, carDestroyed. Produced by a tick, used for
-  effects, the kill feed and scoring; they don't change the world themselves.
+- **Events** (`GameEvent`): impact, explosion, death, carDestroyed, gangAngry. Produced by a tick,
+  used for effects, the kill feed, messages and scoring; they don't change the world themselves.
+- **Grudges** (`world.grudges`): which gang is after which player, until when (see [§10](#10-pedestrians-gangs-and-cops)).
 - **Ids** come from one counter (`nextId`) shared by all entity types.
 - **Randomness:** a mulberry32 generator whose state is part of the world (`rngState`), so it's
   copied, sent in snapshots and replayed exactly.
@@ -84,6 +86,7 @@ A map is a grid of cells (`BlockMap`):
 | `levels` | building height in storeys (1 storey = 1 unit) |
 | `variants` | free per-cell style data for asset packs (building colour, road centre lines) |
 | `lanes` | traffic lanes: a bit per driving direction, plus an intersection bit |
+| `territory` | which gang's turf a cell is (0: neutral ground) |
 | spawns | player spawn points (24), parked cars (28), weapon pickups (16) |
 
 **The generated city** (`generateCity(seed)`) is a 6×6 grid of city blocks, 77×77 cells:
@@ -96,6 +99,9 @@ A map is a grid of cells (`BlockMap`):
 - **Parked cars stand on the pavement along the right-hand kerb**, facing the traffic direction (not
   in the lanes: that jammed traffic, see [§9](#9-traffic)).
 - **Pickups**: pistol 3 in 6, machine gun 2 in 6, rocket launcher 1 in 6, spread over pavements.
+- **Gang turf**: three corners of 2×2 city blocks (north-west, north-east, south-centre), the blocks
+  only, not the roads between them. Fixed, without using the random generator, so a seed's city
+  stayed the same when turf was added.
 - The same seed always gives the same city, so the server only sends the seed, not the map.
 
 ## 5. One simulation tick
@@ -218,14 +224,19 @@ behind cars parked in the lanes; overtaking, kerb parking and right of way fixed
 
 Not done: traffic lights, visible drivers, traffic on custom maps (needs lane data).
 
-## 10. Pedestrians
+## 10. Pedestrians, gangs and cops
 
-The people walking the city (`pedestrians.ts`, part of the shared simulation). They're peds like
-players (`kind: 'pedestrian'`), so they can be shot and run over by the same rules.
+The people walking the city (`pedestrians.ts` and `gangs.ts`, part of the shared simulation).
+They're peds like players, so they can be shot and run over by the same rules. There are three
+kinds: **civilians** (described first), **gang members** and **cops** (further down).
 
-- **Walking:** cell by cell along the pavements at a stroll (1.4 blocks/s): mostly straight on,
-  sometimes turning (weights 6 : 2 : 2), back only at a dead end, and now and then stopping for 1–3 s
-  (3% per cell).
+- **Walking:** cell by cell along the pavements at a stroll (1.4 blocks/s; elderly people 0.6×,
+  youths 1.15×): mostly straight on, sometimes turning (weights 6 : 2 : 2), back only at a dead end,
+  and now and then stopping for 1–3 s (3% per cell). **Looks:** man, woman (3 in 11 each), youth,
+  worker (2 in 11 each), elder (1 in 11). Players get a look too, by join order.
+- **Stuck:** no progress towards the next cell for 45 ticks (a wall, a car parked on the pavement)
+  and they pick another way. Progress is measured from tick to tick: a parked car pushes them back
+  after their step, so measuring within the step never saw them stuck.
 - **Crossing:** at the kerb facing a road they sometimes cross (20% chance), straight over to the
   pavement opposite, not at intersections, and only when no moving car is within 8 blocks; they walk
   briskly (2.2) while on the road. Traffic stops for them anyway (see [§9](#9-traffic)).
@@ -235,15 +246,42 @@ players (`kind: 'pedestrian'`), so they can be shot and run over by the same rul
   them jump sideways out of its path, onto the road if need be. Afterwards they walk back to the
   nearest pavement, avoiding the traffic lanes where possible.
 - **Not players:** they can't pick up weapons or enter cars; no frags (killing one is worth 10 points
-  in Points mode); no ring, arrow, name tag or kill feed line.
-- **Bodies** stay for 20 s, then are cleared. **Numbers:** a target per room (`PEDESTRIANS`, default
-  40); missing ones appear one per tick on a free pavement cell at least 14 blocks from every player.
+  in Points mode, a gang member 20, a cop 50); no ring, arrow, name tag or kill feed line (unless they
+  kill a player: then the feed names their gang, or "A cop").
+- **Bodies** stay for 20 s, then are cleared. **Numbers:** a target per room for each kind
+  (`PEDESTRIANS` civilians, default 40; `GANG_MEMBERS` per gang, default 6; `COPS`, default 6);
+  missing ones appear (one of each kind per tick) on a free pavement cell at least 14 blocks from
+  every player; gang members on their own turf.
+
+**Gangs** (names are our own): *The Suits*, *The Lab Rats* and *The Undead*, each with its turf
+(see [§4](#4-the-map-and-the-generated-city)) and look.
+
+- **On their turf:** members walk like civilians but only onto their own turf's pavement, crossing
+  the road only to their own blocks. A member who strayed (chasing someone, dodging a car) prefers
+  the ways that take them closer to home (5× weight), crossing roads only towards it. Measured:
+  95% of the time on their turf, 1% more than 3 cells off it (the rest crossing between blocks).
+- **Fearless:** gunfire, explosions and bodies don't bother them (nor cops); a car coming at them
+  makes them jump aside for 1 s only, so they don't end up far from home.
+- **Armed** with a pistol (99 rounds), which they keep holding.
+- **Grudges:** a player who hurts a member (shooting, a blast, running them over) makes the whole
+  gang angry with them for 30 s, refreshed by any further harm. A new grudge is announced
+  (`gangAngry` event, sent to that player wherever they are: "The Suits are after you!"). Only
+  players cause grudges; hurting each other or accidents don't.
+- **Retaliation:** members within 15 blocks of a player their gang is after drop everything: with a
+  clear line of sight within 10 blocks they turn, aim for 0.5 s, then fire about every 1.25 s, up to
+  0.16 rad off; otherwise they run straight at the player. Measured standing still in the open next
+  to a hurt member: first hit after about 3 s, dead after about 9 s (median of 12 runs): enough time
+  to run, deadly if you don't.
+
+**Cops** walk the whole city like civilians, armed and fearless, in navy. What they do about crime
+(and the army) is the police option, still to come.
+
 - **Network:** their walking state isn't sent; like traffic they only go to nearby players, and so do
   their deaths.
 
 **Measured over 15 simulated city-minutes** (16 traffic cars, 40 pedestrians, five cities): on the
 pavement 97% of the time, none run over by traffic, everyone keeps moving (about 150 blocks each in
-3 minutes). A full city costs about 0.4 ms per simulation tick. (The first versions lost 12
+3 minutes). A full city costs about 0.45 ms per simulation tick; 0.5 ms with gangs and cops (65 people). (The first versions lost 12
 pedestrians to traffic in that time: panicking and returning pedestrians took the shortest way, often
 along a lane; and the danger check reacted to traffic merely driving past.)
 
@@ -378,7 +416,7 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
   considered and rejected for the server: serverless functions can't hold WebSockets or run a 60 Hz
   loop with in-memory rooms. Railway's Hobby plan (about $5 a month) or Render ($7) fit.
 - Environment: `PORT`, `SEED`, `MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `TRAFFIC`, `PEDESTRIANS`,
-  `STATIC_DIR`.
+  `GANG_MEMBERS`, `COPS`, `STATIC_DIR`.
 - Static files are served only from inside the build folder (path-traversal attempts are refused).
 
 ### Legal
@@ -391,7 +429,7 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 
 - `npm test` runs node:test suites in all three packages; `npm run typecheck` checks all code.
 - **Simulation:** movement, collisions, combat, damage, deaths, matches, traffic, pedestrians,
-  delta encoding, and
+  gangs (turf, grudges, retaliation, chasing), cops, delta encoding, and
   **replay determinism** for each of them (a copied world fed the same inputs must end up identical).
 - **Server:** real WebSocket clients against a real server (joining, input ordering, rooms, limits,
   deltas decoded like the real client does, HTTP serving and path traversal, interest management).
@@ -415,6 +453,9 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 | "It" stored in the world | It changes the simulation, so prediction must know it |
 | Pedestrians are peds with `kind` and `ai` | Shooting, running over, bodies and physics work for them unchanged |
 | Pedestrians dodge cars sideways, ignore passing traffic | Measured: fleeing "away" or reacting to any nearby car got them run over |
+| Gangs: fixed turf plus per-player grudges | Like GTA2's gang respect, but simple: hurt one, the gang is after you for a while |
+| Gang aim: 0.5 s to aim, a shot every 1.25 s, 0.16 rad off | Measured: tighter aim killed a player standing still in 2–4 s, looser took 15–25 s |
+| Cops in the blue-shirted sprite, tinted navy | Tinting the soldier sprite blue only made it darker green |
 | Rocket-destroyed cars blow 0.3 s after the rocket | Two booms feel more powerful than one merged explosion (playtest feedback) |
 | Kenney CC0 art as default | Free to ship and host; no GTA2 assets |
 | Arrows orbit the player, outlined | Placement from GTA2; the bevelled look felt too old-fashioned (playtest feedback) |
@@ -432,7 +473,8 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 ## 17. Known limitations and next steps
 
 - Traffic drivers who step out (as pedestrians) when you take their car; pedestrians reacting to
-  bodies they walk past; more kinds of people (GTA2's gangs, cops).
+  bodies they walk past; fire trucks; the police option (cops reacting to crime, then the army).
+- Gang members don't drive, don't fight each other, and chase in a straight line (no path finding).
 - Points popping up where they're earned, like GTA2.
 - Traffic only on generated cities; no traffic lights.
 - No mass in car crashes; no speed-dependent understeer.

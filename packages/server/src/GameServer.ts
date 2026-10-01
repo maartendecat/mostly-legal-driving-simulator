@@ -28,6 +28,10 @@ export interface GameServerOptions {
   traffic?: number;
   /** Pedestrians per room (default: none). */
   pedestrians?: number;
+  /** Members per gang, per room (default: none). */
+  gangMembers?: number;
+  /** Cops per room (default: none). */
+  cops?: number;
 }
 
 const DEFAULT_EMPTY_ROOM_TICKS = secondsToTicks(60);
@@ -66,6 +70,8 @@ export class GameServer {
       permanent: true,
       traffic: options.traffic ?? 0,
       pedestrians: options.pedestrians ?? 0,
+      gangMembers: options.gangMembers ?? 0,
+      cops: options.cops ?? 0,
     });
     // One port for everything: the game page (if built), a health check, and the game connections.
     const serveStatic = options.staticDir ? staticFileHandler(options.staticDir) : null;
@@ -178,6 +184,8 @@ export class GameServer {
       permanent: false,
       traffic: this.options.traffic ?? 0,
       pedestrians: this.options.pedestrians ?? 0,
+      gangMembers: this.options.gangMembers ?? 0,
+      cops: this.options.cops ?? 0,
     });
   }
 

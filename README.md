@@ -34,12 +34,14 @@ You have 100 health. Bullets, rocket blasts and being run over hurt; at zero you
 respawn 3 seconds later, unarmed. Cars take damage from gunfire and hard crashes, start smoking,
 then burn and explode (get out in time!) and leave a wreck that's replaced after 30 seconds.
 
-The city has traffic and pedestrians (per room, by default 16 cars and 40 people;
-`TRAFFIC=30 PEDESTRIANS=60 npm run server`, or `0` for none). Traffic drives on the right, turns at
+The city has traffic and pedestrians (per room, by default 16 cars, 40 people, 6 members of each
+of three gangs and 6 cops; `TRAFFIC=30 PEDESTRIANS=60 GANG_MEMBERS=4 COPS=8 npm run server`, or `0`
+for none). Traffic drives on the right, turns at
 random at intersections, takes turns crossing them, stops for people and cars and drives around
 parked ones. Parked cars stand on the kerb. Jump into a traffic car and it's yours. Pedestrians
 stroll the pavements, cross the road when it's clear, and run for it when there's shooting or a car
-comes at them.
+comes at them. Each gang (The Suits, The Lab Rats, The Undead) hangs around its own turf, armed:
+hurt one of them and the whole gang is after you for a while. Cops patrol the city.
 
 Online games are matches in one of GTA2's three modes:
 
@@ -87,7 +89,7 @@ With Fly.io, for example: `fly launch` (it finds the Dockerfile; internal port 8
 - Rooms live in the server's memory: run exactly **one** instance, and a restart ends all games.
 - `GET /healthz` returns `{ ok, rooms, players }` for health checks.
 - The same environment variables apply (`MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `TRAFFIC`,
-  `PEDESTRIANS`, `SEED`, `PORT`).
+  `PEDESTRIANS`, `GANG_MEMBERS`, `COPS`, `SEED`, `PORT`).
 - After joining a room, the address bar is an invite link (`…/#room=abc123`): send it to friends
   and they land in the same room.
 
@@ -167,11 +169,20 @@ maps and name. `.sty` and `.gmp` files are gitignored.
    hosting with a Dockerfile, health check and invite links. Not yet: WebRTC/WebTransport and
    lag compensation for hits (revisit after playtesting over the internet)
 
+### Part A: a living city (in progress)
+
+1. ✅ More kinds of people: gangs, cops, and more variety among pedestrians
+2. Pedestrians reacting to bodies
+3. Traffic drivers stepping out when a player takes their car
+4. Fire trucks that come when fire breaks out (exploding cars)
+5. Police as a game option: first an analysis of how they should behave (minor crimes only when a
+   police car sees it, major crimes a proactive response, eventually the army with tanks and
+   helicopters), then the implementation
+
 ### Later
 
 - ✅ Walking animation for people, like GTA2's (feet stepping out, body swaying)
-- A livelier city: ✅ traffic, ✅ pedestrians; still to do: traffic drivers who step out when you
-  take their car
+- A livelier city: ✅ traffic, ✅ pedestrians (more in Part A above)
 - Points popping up where they're earned, like GTA2 (a car exploding, damage done, kills)
 - In-browser map editor (started, then postponed; unfinished work in `git stash`)
 - Classic pack: load your own GTA2 files in the browser
