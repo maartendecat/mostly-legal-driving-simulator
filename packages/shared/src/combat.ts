@@ -154,7 +154,7 @@ function detonate(world: World, projectile: Projectile, hit: Hit | null): void {
 
 /** Whether this ped is allowed to take weapons from pickups at all. Tag: "it" can't. */
 export function canPickUpWeapons(world: World, ped: Ped): boolean {
-  return ped.id !== world.itPedId;
+  return ped.kind === 'player' && ped.id !== world.itPedId;
 }
 
 export function collectPickups(world: World): void {

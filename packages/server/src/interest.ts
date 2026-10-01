@@ -4,7 +4,8 @@ import { carSpeed, type GameEvent, type Snapshot, type World } from '@game/share
  * Interest management: each player only gets what's around them. The camera zooms out with speed,
  * so the area grows while driving fast. A few things always go to everyone: all players and the
  * cars they drive (for arrows and name tags), pickups (they never change, so they cost nothing
- * after the first snapshot), and kills and wrecked cars (for the kill feed and scoring).
+ * after the first snapshot), and players' deaths and wrecked cars (for the kill feed and scoring).
+ * Pedestrians are like traffic: only nearby.
  */
 
 /**
@@ -44,13 +45,20 @@ export function visibleSnapshot(snapshot: Snapshot, view: View | null, playerPed
   };
 }
 
-/** Kills and wrecked cars go to everyone; sparks and explosions only to those who can see them. */
-export function visibleEvents(events: readonly GameEvent[], view: View | null): GameEvent[] {
+/**
+ * Players' deaths and wrecked cars go to everyone (kill feed, scoring); pedestrians' deaths, sparks
+ * and explosions only to those who can see them.
+ */
+export function visibleEvents(events: readonly GameEvent[], view: View | null, playerPeds: ReadonlySet<number>): GameEvent[] {
   if (!view) return [...events];
-  return events.filter((e) => e.type === 'death' || e.type === 'carDestroyed' || sees(view, e.x, e.y));
+  return events.filter((e) => (e.type === 'death' && playerPeds.has(e.pedId)) || e.type === 'carDestroyed' || sees(view, e.x, e.y));
 }
 
-/** Traffic cars' driving state (route, counters) is only needed on the server: don't send it. */
+/** Traffic's and pedestrians' AI state is only needed on the server: don't send it. */
 export function forClients(snapshot: Snapshot): Snapshot {
-  return { ...snapshot, cars: snapshot.cars.map((c) => (c.traffic ? { ...c, traffic: null } : c)) };
+  return {
+    ...snapshot,
+    cars: snapshot.cars.map((c) => (c.traffic ? { ...c, traffic: null } : c)),
+    peds: snapshot.peds.map((p) => (p.ai ? { ...p, ai: null } : p)),
+  };
 }

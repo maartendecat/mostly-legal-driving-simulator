@@ -35,6 +35,8 @@ export interface GameRoomOptions {
   permanent: boolean;
   /** Traffic cars driving around the city. */
   traffic: number;
+  /** Pedestrians walking around the city. */
+  pedestrians: number;
 }
 
 export interface Player {
@@ -68,7 +70,7 @@ export class GameRoom {
   private emptySince: number | null;
 
   constructor(readonly options: GameRoomOptions) {
-    this.world = createWorld(generateCity(options.seed), options.seed, { traffic: options.traffic });
+    this.world = createWorld(generateCity(options.seed), options.seed, { traffic: options.traffic, pedestrians: options.pedestrians });
     this.match = new Match(options.match, this.world);
     this.emptySince = this.world.tick;
   }
@@ -182,7 +184,7 @@ export class GameRoom {
     if (player.socket.readyState !== WebSocket.OPEN) return;
     const view = viewFor(this.world, player.pedId);
     const snapshot = visibleSnapshot(full, view, extras.playerPeds);
-    const visible = visibleEvents(events, view);
+    const visible = visibleEvents(events, view, extras.playerPeds);
     const { acks, players, match } = extras;
     const playersJson = JSON.stringify(players);
     const matchJson = JSON.stringify(match);

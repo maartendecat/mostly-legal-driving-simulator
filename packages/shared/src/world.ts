@@ -1,6 +1,7 @@
 import { collectPickups, spawnPickup, stepProjectiles, updateWeapons, type GameEvent, type Pickup, type Projectile } from './combat';
 import { PED_MAX_HEALTH, damageCar, damagePed, isDead, updateLifecycle } from './damage';
 import { NO_INPUT, type PlayerInput } from './input';
+import { maintainPedestrians, stepPedestrians, type PedestrianState } from './pedestrians';
 import { maintainTraffic, trafficInput, type TrafficState } from './traffic';
 import { isSolidAt, type BlockMap } from './map';
 import { clamp, nextRandom, randomPick, wrapAngle } from './math';
@@ -60,6 +61,10 @@ export interface Ped {
   enterHeld: boolean;
   /** Same for weapon switching. */
   switchHeld: boolean;
+  /** A player, or one of the city's pedestrians (who walk on their own, see pedestrians.ts). */
+  kind: 'player' | 'pedestrian';
+  /** A pedestrian's walking state; null for players. */
+  ai: PedestrianState | null;
 }
 
 export interface Car {
@@ -101,14 +106,18 @@ export interface World {
   rngState: number;
   /** How many traffic cars to keep driving around (0: none). */
   trafficTarget: number;
+  /** How many pedestrians to keep walking around (0: none). */
+  pedestrianTarget: number;
 }
 
 export interface WorldOptions {
   /** Number of traffic cars to keep driving around the city. */
   traffic?: number;
+  /** Number of pedestrians to keep walking around the city. */
+  pedestrians?: number;
 }
 
-export function createWorld(map: BlockMap, seed = 1, { traffic = 0 }: WorldOptions = {}): World {
+export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians = 0 }: WorldOptions = {}): World {
   const world: World = {
     tick: 0,
     map,
@@ -121,6 +130,7 @@ export function createWorld(map: BlockMap, seed = 1, { traffic = 0 }: WorldOptio
     nextId: 1,
     rngState: seed >>> 0,
     trafficTarget: traffic,
+    pedestrianTarget: pedestrians,
   };
   for (const spawn of map.carSpawns) spawnRandomCar(world, spawn);
   for (const spawn of map.pickupSpawns) spawnPickup(world, spawn.weapon, spawn.x, spawn.y);
@@ -155,7 +165,7 @@ export function spawnRandomCar(world: World, spawn: { x: number; y: number; head
   return spawnCar(world, randomPick(world, SPAWN_MODELS), spawn.x, spawn.y, spawn.heading);
 }
 
-/** Spawns a ped at the given position, or at a random pavement spawn point. */
+/** Spawns a player's ped at the given position, or at a random pavement spawn point. */
 export function spawnPed(world: World, x?: number, y?: number): Ped {
   const spawn =
     x !== undefined && y !== undefined
@@ -169,7 +179,7 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
     y: spawn.y,
     heading: nextRandom(world) * Math.PI * 2 - Math.PI,
     carId: null,
-    color: PED_COLORS[world.peds.size % PED_COLORS.length]!,
+    color: PED_COLORS[[...world.peds.values()].filter((p) => p.kind === 'player').length % PED_COLORS.length]!,
     health: PED_MAX_HEALTH,
     respawnAt: null,
     weapon: null,
@@ -177,6 +187,8 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
     fireCooldown: 0,
     enterHeld: false,
     switchHeld: false,
+    kind: 'player',
+    ai: null,
   };
   world.peds.set(ped.id, ped);
   return ped;
@@ -186,7 +198,7 @@ export function spawnPed(world: World, x?: number, y?: number): Ped {
 export function cloneWorld(world: World): World {
   return {
     ...world,
-    peds: new Map([...world.peds].map(([id, ped]) => [id, { ...ped, ammo: { ...ped.ammo } }])),
+    peds: new Map([...world.peds].map(([id, ped]) => [id, { ...ped, ammo: { ...ped.ammo }, ai: ped.ai && { ...ped.ai, target: { ...ped.ai.target }, panicFrom: ped.ai.panicFrom && { ...ped.ai.panicFrom }, panicPath: ped.ai.panicPath && { ...ped.ai.panicPath } } }])),
     cars: new Map([...world.cars].map(([id, car]) => [id, { ...car, traffic: car.traffic && { ...car.traffic, route: car.traffic.route.map((p) => ({ ...p })) } }])),
     projectiles: new Map([...world.projectiles].map(([id, p]) => [id, { ...p }])),
     pickups: new Map([...world.pickups].map(([id, p]) => [id, { ...p }])),
@@ -254,8 +266,10 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
 
   collectPickups(world);
   stepProjectiles(world, dt);
+  stepPedestrians(world, dt);
   updateLifecycle(world);
   maintainTraffic(world);
+  maintainPedestrians(world);
 
   world.tick++;
 }

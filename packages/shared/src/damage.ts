@@ -1,4 +1,5 @@
 import { randomPick } from './math';
+import { CORPSE_TICKS } from './pedestrians';
 import { secondsToTicks } from './time';
 import { CAR_MODELS } from './vehicles';
 import type { WeaponId } from './weapons';
@@ -39,7 +40,8 @@ export function damagePed(world: World, ped: Ped, amount: number, attackerId: nu
   if (ped.health > 0) return;
 
   ped.health = 0;
-  ped.respawnAt = world.tick + RESPAWN_TICKS;
+  // Players come back; a pedestrian's body is cleared away after a while.
+  ped.respawnAt = world.tick + (ped.kind === 'pedestrian' ? CORPSE_TICKS : RESPAWN_TICKS);
   const car = ped.carId === null ? undefined : world.cars.get(ped.carId);
   if (car && car.driverId === ped.id) car.driverId = null;
   ped.carId = null;
@@ -106,8 +108,10 @@ export function explode(
 
 /** Respawns dead peds, blows up burning cars and replaces old wrecks. Runs once per tick. */
 export function updateLifecycle(world: World): void {
-  for (const ped of world.peds.values()) {
-    if (ped.respawnAt !== null && world.tick >= ped.respawnAt) respawnPed(world, ped);
+  for (const ped of [...world.peds.values()]) {
+    if (ped.respawnAt === null || world.tick < ped.respawnAt) continue;
+    if (ped.kind === 'pedestrian') world.peds.delete(ped.id);
+    else respawnPed(world, ped);
   }
   for (const car of [...world.cars.values()]) {
     if (!car.wrecked && car.explodeAt !== null && world.tick >= car.explodeAt) explodeCar(world, car);

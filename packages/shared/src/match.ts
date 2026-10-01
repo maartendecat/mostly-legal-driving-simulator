@@ -41,6 +41,8 @@ export const POINTS = {
   kill: 1000,
   suicide: -500,
   carDestroyed: 100,
+  /** Killing one of the city's pedestrians: a little, as in GTA2. */
+  pedestrian: 10,
 } as const;
 
 /** What clients need to know about the match; sent in every snapshot. */
@@ -121,7 +123,12 @@ export class Match {
 
   private scoreDeath(world: World, victimId: number, killerId: number | null): void {
     const victim = this.scores.get(victimId);
-    if (victim) victim.deaths++;
+    if (!victim) {
+      // Not a player but one of the city's pedestrians: only worth a few points.
+      if (killerId !== null) this.addPoints(killerId, POINTS.pedestrian);
+      return;
+    }
+    victim.deaths++;
     const killer = killerId === null ? undefined : this.scores.get(killerId);
     if (!killer || killerId === null) return; // accidents only count as a death
     const suicide = killerId === victimId;

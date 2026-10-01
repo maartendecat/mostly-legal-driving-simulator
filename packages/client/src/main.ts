@@ -89,7 +89,8 @@ async function main(): Promise<void> {
     const { transforms, events } = session.update(frameDt, () => keyboard.sample());
     renderer.render(session.world, transforms, session.myPedId, frameDt, events);
     wasted.update(session, events);
-    for (const event of events) if (event.type === 'death') killFeed.add(session, event);
+    // The kill feed is about players; pedestrians come and go without a word.
+    for (const event of events) if (event.type === 'death' && session.players.some((p) => p.pedId === event.pedId)) killFeed.add(session, event);
     const it = session.match?.mode === 'tag' ? session.world.itPedId : null;
     if (it !== null && it !== lastIt) killFeed.addNewIt(session, it);
     lastIt = it;

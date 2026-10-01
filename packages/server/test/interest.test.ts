@@ -41,17 +41,22 @@ test('you see further while driving fast (the camera zooms out)', () => {
   assert.ok(viewFor(world, me.id)!.radius > onFoot + 10);
 });
 
-test('kills and wrecks reach everyone; sparks and explosions only those nearby', () => {
-  const { world, me } = city();
+test("players' deaths and wrecks reach everyone; pedestrians' deaths, sparks and explosions only those nearby", () => {
+  const { world, me, players } = city();
   const at = (x: number, y: number) => ({ tick: 1, ownerId: 1, x, y });
   const events: GameEvent[] = [
     { type: 'impact', ...at(12, 12) },
     { type: 'impact', ...at(60, 60) },
     { type: 'explosion', ...at(60, 60), radius: 2 },
-    { type: 'death', ...at(60, 60), pedId: 2, killerId: 1, cause: 'pistol' },
+    { type: 'death', ...at(60, 60), pedId: [...players][1]!, killerId: 1, cause: 'pistol' },
+    { type: 'death', ...at(61, 61), pedId: 999, killerId: 1, cause: 'pistol' }, // a pedestrian, far away
+    { type: 'death', ...at(13, 13), pedId: 998, killerId: 1, cause: 'pistol' }, // a pedestrian, nearby
     { type: 'carDestroyed', ...at(60, 60), carId: 3, attackerId: 1 },
   ];
-  assert.deepEqual(visibleEvents(events, viewFor(world, me.id)).map((e) => `${e.type}@${e.x}`), ['impact@12', 'death@60', 'carDestroyed@60']);
+  assert.deepEqual(
+    visibleEvents(events, viewFor(world, me.id), players).map((e) => `${e.type}@${e.x}`),
+    ['impact@12', 'death@60', 'death@13', 'carDestroyed@60'],
+  );
 });
 
 test("traffic cars' driving state stays on the server", () => {

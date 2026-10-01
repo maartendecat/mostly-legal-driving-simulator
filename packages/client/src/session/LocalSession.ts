@@ -3,6 +3,7 @@ import { captureTransforms, interpolateTransforms, type TransformSnapshot } from
 import type { FrameState, GameSession } from './GameSession';
 
 const OFFLINE_TRAFFIC = 16;
+const OFFLINE_PEDESTRIANS = 40;
 
 /** Single-player: runs the shared simulation in the browser at the fixed tick rate. */
 export class LocalSession implements GameSession {
@@ -17,7 +18,7 @@ export class LocalSession implements GameSession {
     seed: number,
     readonly status = 'Offline',
   ) {
-    this.world = createWorld(generateCity(seed), seed, { traffic: OFFLINE_TRAFFIC });
+    this.world = createWorld(generateCity(seed), seed, { traffic: OFFLINE_TRAFFIC, pedestrians: OFFLINE_PEDESTRIANS });
     this.myPedId = spawnPed(this.world).id;
     this.players = [{ pedId: this.myPedId, name: 'You', frags: 0, deaths: 0, points: 0, itTicks: 0 }];
     this.previous = captureTransforms(this.world);

@@ -62,8 +62,9 @@ flowchart LR
 - **Units:** one block = one map cell = 1 unit. **+x is east, +y is north, +z is up.** Headings are
   radians, 0 = east, counter-clockwise positive.
 - **Entities** (all plain, serializable data in `World`):
-  - `Ped`: position, heading, health, current weapon and ammo, `carId` when driving, `respawnAt`
-    when dead, input edge-detection flags.
+  - `Ped`: a player or one of the city's pedestrians (`kind`). Position, heading, health, current
+    weapon and ammo, `carId` when driving, `respawnAt` when dead, input edge-detection flags, and
+    `ai` (walking state) for pedestrians.
   - `Car`: model, position, heading, velocity, health, `driverId`, burning/wreck state,
     `lastAttackerId` (for kill credit), `traffic` (self-driving state) or null.
   - `Projectile`: bullet or rocket in flight. `Pickup`: weapon crate with a respawn time.
@@ -108,8 +109,8 @@ A map is a grid of cells (`BlockMap`):
 3. **Car-to-car collisions.**
 4. **Peds in cars** follow their car; **peds on foot** are pushed out of cars (and run over if the
    car is fast).
-5. **Pickups, projectiles, lifecycle** (respawns, burning cars exploding, wrecks replaced),
-   **traffic upkeep**.
+5. **Pickups, projectiles, pedestrians** (who see this tick's gunfire), **lifecycle** (respawns,
+   bodies cleared, burning cars exploding, wrecks replaced), **traffic and pedestrian upkeep**.
 
 On the server, the `Match` then scores the tick's events (see [§8](#8-game-modes-and-matches)).
 
@@ -172,7 +173,7 @@ heavy in a crash), speed-dependent understeer. See roadmap item 4.
 | Mode | Scoring | Default limit |
 |---|---|---|
 | Frag | +1 per kill, −1 for killing yourself | first to 10 |
-| Points | +1,000 per kill, −500 for killing yourself, +100 per car you wreck | first to 10,000 |
+| Points | +1,000 per kill, −500 for killing yourself, +100 per car you wreck, +10 per pedestrian | first to 10,000 |
 | Tag | time alive as "it" | first to 2:00 |
 
 - Accidents (no killer) only count as a death. If nobody reaches the limit, the leaders when time
@@ -217,7 +218,36 @@ behind cars parked in the lanes; overtaking, kerb parking and right of way fixed
 
 Not done: traffic lights, visible drivers, traffic on custom maps (needs lane data).
 
-## 10. Networking
+## 10. Pedestrians
+
+The people walking the city (`pedestrians.ts`, part of the shared simulation). They're peds like
+players (`kind: 'pedestrian'`), so they can be shot and run over by the same rules.
+
+- **Walking:** cell by cell along the pavements at a stroll (1.4 blocks/s): mostly straight on,
+  sometimes turning (weights 6 : 2 : 2), back only at a dead end, and now and then stopping for 1–3 s
+  (3% per cell).
+- **Crossing:** at the kerb facing a road they sometimes cross (20% chance), straight over to the
+  pavement opposite, not at intersections, and only when no moving car is within 8 blocks; they walk
+  briskly (2.2) while on the road. Traffic stops for them anyway (see [§9](#9-traffic)).
+- **Panic:** impacts, explosions, deaths and bullets or rockets flying past within 7 blocks make them
+  run (3.2 blocks/s) for 4 s, to the open cell furthest from the danger, preferring off the road. A
+  car heading straight at them (faster than 4, within 4.5 blocks, its path within 0.8 of them) makes
+  them jump sideways out of its path, onto the road if need be. Afterwards they walk back to the
+  nearest pavement, avoiding the traffic lanes where possible.
+- **Not players:** they can't pick up weapons or enter cars; no frags (killing one is worth 10 points
+  in Points mode); no ring, arrow, name tag or kill feed line.
+- **Bodies** stay for 20 s, then are cleared. **Numbers:** a target per room (`PEDESTRIANS`, default
+  40); missing ones appear one per tick on a free pavement cell at least 14 blocks from every player.
+- **Network:** their walking state isn't sent; like traffic they only go to nearby players, and so do
+  their deaths.
+
+**Measured over 15 simulated city-minutes** (16 traffic cars, 40 pedestrians, five cities): on the
+pavement 97% of the time, none run over by traffic, everyone keeps moving (about 150 blocks each in
+3 minutes). A full city costs about 0.4 ms per simulation tick. (The first versions lost 12
+pedestrians to traffic in that time: panicking and returning pedestrians took the shortest way, often
+along a lane; and the danger check reacted to traffic merely driving past.)
+
+## 11. Networking
 
 ### Messages (JSON over one WebSocket)
 
@@ -258,8 +288,9 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
 - **Rounding:** numbers are rounded to 0.0001 before sending; the server keeps full precision.
 - **Interest management:** each player gets the area around them: ±16 blocks on foot, growing with
   driving speed (+0.9 per block/s, up to ±32) because the camera zooms out. Always included: every
-  player and the car they drive (arrows, name tags), all pickups, deaths and wrecked cars (kill feed,
-  scoring). Sparks and explosions only when nearby. Traffic's internal driving state is never sent.
+  player and the car they drive (arrows, name tags), all pickups, players' deaths and wrecked cars
+  (kill feed, scoring). Pedestrians, their deaths, sparks and explosions only when nearby. Traffic's
+  and pedestrians' AI state is never sent.
 
 **Measured bandwidth per player** (4 players):
 
@@ -300,7 +331,7 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
   instant-hit weapons.
 - **Binary encoding:** JSON plus deltas was enough so far.
 
-## 11. Rooms and the lobby
+## 12. Rooms and the lobby
 
 - One server hosts many **rooms**, each its own game with its own random city, match and players.
   One permanent room ("Downtown", configured with `MODE`, `SCORE_LIMIT`, `TIME_LIMIT`); rooms players
@@ -309,7 +340,7 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
 - **Invite links:** after joining, the address bar reads `…/#room=<id>`; opening it joins that room.
   Esc leaves (and drops the room from the address).
 
-## 12. The browser client
+## 13. The browser client
 
 - **Sessions:** `LocalSession` (offline) and `NetworkSession` (online) give the rest of the client the
   same interface: a world to draw, where to draw each entity this frame, and events to show.
@@ -338,7 +369,7 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
 - **Controls:** arrows/WASD move and steer, Enter/F enter and exit, Space handbrake, J/Ctrl fire, Z/X
   switch weapon, Tab scores, Esc leave.
 
-## 13. Hosting and operations
+## 14. Hosting and operations
 
 - One Node process serves the built client, `/healthz`, and the game's WebSocket on one port
   (`npm start`). The page connects back to its own address (`wss://` on HTTPS).
@@ -346,7 +377,8 @@ players, 24 for rooms), room settings are clamped, and messages over 1 KB are re
 - Docker image (`Dockerfile`), Railway config (`railway.json`, step-by-step in the README). Vercel was
   considered and rejected for the server: serverless functions can't hold WebSockets or run a 60 Hz
   loop with in-memory rooms. Railway's Hobby plan (about $5 a month) or Render ($7) fit.
-- Environment: `PORT`, `SEED`, `MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `TRAFFIC`, `STATIC_DIR`.
+- Environment: `PORT`, `SEED`, `MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `TRAFFIC`, `PEDESTRIANS`,
+  `STATIC_DIR`.
 - Static files are served only from inside the build folder (path-traversal attempts are refused).
 
 ### Legal
@@ -355,10 +387,11 @@ Rockstar still owns GTA2's art, sound, maps and name. The game ships only CC0 ar
 drawn in code; `.sty`/`.gmp` files are gitignored. A future "classic" pack would load a player's own
 GTA2 files in their browser, never uploading or hosting them. The game's name is its own.
 
-## 14. Testing
+## 15. Testing
 
 - `npm test` runs node:test suites in all three packages; `npm run typecheck` checks all code.
-- **Simulation:** movement, collisions, combat, damage, deaths, matches, traffic, delta encoding, and
+- **Simulation:** movement, collisions, combat, damage, deaths, matches, traffic, pedestrians,
+  delta encoding, and
   **replay determinism** for each of them (a copied world fed the same inputs must end up identical).
 - **Server:** real WebSocket clients against a real server (joining, input ordering, rooms, limits,
   deltas decoded like the real client does, HTTP serving and path traversal, interest management).
@@ -368,7 +401,7 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 - **Measure before tuning:** bandwidth, tick cost and traffic flow were measured with throwaway
   scripts and the results are recorded above.
 
-## 15. Decisions log
+## 16. Decisions log
 
 | Decision | Why |
 |---|---|
@@ -380,6 +413,8 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 | Parked cars on the kerb | Cars parked in lanes gridlocked traffic |
 | Traffic drives with player controls | Same physics for everyone, no special cases |
 | "It" stored in the world | It changes the simulation, so prediction must know it |
+| Pedestrians are peds with `kind` and `ai` | Shooting, running over, bodies and physics work for them unchanged |
+| Pedestrians dodge cars sideways, ignore passing traffic | Measured: fleeing "away" or reacting to any nearby car got them run over |
 | Rocket-destroyed cars blow 0.3 s after the rocket | Two booms feel more powerful than one merged explosion (playtest feedback) |
 | Kenney CC0 art as default | Free to ship and host; no GTA2 assets |
 | Arrows orbit the player, outlined | Placement from GTA2; the bevelled look felt too old-fashioned (playtest feedback) |
@@ -394,9 +429,10 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
   `git stash`; the plan is in the project notes.
 - **Classic GTA2-files pack, car mass and handling:** on the roadmap for later.
 
-## 16. Known limitations and next steps
+## 17. Known limitations and next steps
 
-- Pedestrians walking the city (next), and traffic drivers who step out when you take their car.
+- Traffic drivers who step out (as pedestrians) when you take their car; pedestrians reacting to
+  bodies they walk past; more kinds of people (GTA2's gangs, cops).
 - Points popping up where they're earned, like GTA2.
 - Traffic only on generated cities; no traffic lights.
 - No mass in car crashes; no speed-dependent understeer.

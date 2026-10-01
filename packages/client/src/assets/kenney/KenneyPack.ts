@@ -243,7 +243,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
         const sway = walk.update(dt, group.position.x, group.position.y, group.rotation.z, !dead);
         body.rotation.z = dead ? Math.PI / 2 : sway;
         material.color.setHex(dead ? 0x707070 : 0xffffff);
-        ring.visible = !dead;
+        ring.visible = !dead && state.kind === 'player';
         blood.update(dt, dead);
       },
       dispose: () => {
