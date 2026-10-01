@@ -122,6 +122,26 @@ tells Railway to build the Dockerfile and to use `/healthz` as the health check.
 5. Keep it at **one replica**: rooms live in memory. Every push to `main` redeploys, which ends
    the games in progress.
 
+### Deploying to Render
+
+`render.yaml` in this repo is a Render *Blueprint*: it describes the service (built from the
+Dockerfile, one instance, health check on `/healthz`), so there's nothing to fill in by hand.
+
+1. Put the repo on GitHub (see step 1 for Railway above).
+2. On [render.com](https://render.com), **New → Blueprint**, connect your GitHub account and pick
+   the repo. Render shows the service from `render.yaml`; click **Apply** (or **Deploy
+   Blueprint**). The first build takes a few minutes.
+3. The service page shows its address, like `https://mostly-legal-driving-simulator.onrender.com`:
+   that's the game. Share it, or join a room and share the invite link.
+4. Every push to `main` redeploys (ending the games in progress).
+
+The Blueprint uses the **free** instance type. It's fine for trying the game with a few friends,
+but it's small (a tenth of a CPU), it goes to sleep after 15 minutes without players, and waking
+up takes about a minute (with a loading page). For always-on hosting change `plan` in
+`render.yaml` to a paid type such as `0.5c-512mb` (the old Starter, about $7 a month), or change
+the instance type on the service's **Settings** page. Like on Railway, keep it at one instance.
+The region is Frankfurt; change `region` if your players are elsewhere.
+
 ## Layout
 
 ```
@@ -163,6 +183,9 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 
 ## Roadmap
 
+**Next up: the police** (Part A5 below): heat and wanted levels, then roadblocks and SWAT, then the
+army, as planned in [docs/POLICE.md](docs/POLICE.md).
+
 1. ✅ Shared simulation, placeholder renderer, driving and walking offline
 2. ✅ Multiplayer: authoritative WebSocket server, client-side prediction with reconciliation,
    snapshot interpolation for other players, join screen with player names
@@ -186,9 +209,13 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 5. Police as a game option: first an analysis of how they should behave (minor crimes only when a
    police car sees it, major crimes a proactive response, eventually the army with tanks and
    helicopters), then the implementation. ✅ A first part already: ramming a police car gets the
-   police after you; they chase you and arrest you (BUSTED)
+   police after you; they chase you and arrest you (BUSTED). ✅ Analysis done and decided:
+   [docs/POLICE.md](docs/POLICE.md); next: heat and wanted levels 1–3
 
 ### Later
+
+- New game mode: everyone together against the police, holding out as long as possible (TODO,
+  after the full police; see [docs/POLICE.md §10](docs/POLICE.md#10-later-a-co-op-mode-against-the-police))
 
 - ✅ Walking animation for people, like GTA2's (feet stepping out, body swaying)
 - A livelier city: ✅ traffic, ✅ pedestrians (more in Part A above)

@@ -1,0 +1,21 @@
+# Render Blueprint: one Docker web service running the game server, which also serves the game page.
+# On render.com: New → Blueprint, pick this repo. See "Deploying to Render" in the README.
+services:
+  - name: mostly-legal-driving-simulator
+    type: web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # free: sleeps after 15 min without players and takes about a minute to wake up; fine for
+    # trying it out with a few friends. For always-on hosting pick a paid instance type instead,
+    # e.g. 0.5c-512mb (the old "Starter").
+    plan: free
+    region: frankfurt
+    # Rooms live in memory: exactly one instance.
+    numInstances: 1
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: PORT
+        value: "8080"
+      # Optional, see the README: MODE, SCORE_LIMIT, TIME_LIMIT, TRAFFIC, PEDESTRIANS,
+      # GANG_MEMBERS, COPS, POLICE_CARS, FIRE_TRUCKS, SEED.

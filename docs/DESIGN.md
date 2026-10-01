@@ -331,8 +331,8 @@ along a lane; and the danger check reacted to traffic merely driving past.)
 
 ## 12. Police
 
-A first part of the police (`police.ts`); the full design (crimes by severity, escalating response,
-the army) is still to come as part of the police option.
+A first part of the police (`police.ts`). The full design (crimes by severity, escalating response,
+the army) is proposed in [POLICE.md](POLICE.md).
 
 - **Police cars:** besides the other traffic, a number of police cars drive around (`POLICE_CARS`,
   default 2): sedans with a crew of two, drawn with the Car Kit's police car (which ordinary sedans
@@ -553,7 +553,8 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 ## 19. Known limitations and next steps
 
 - The rest of the police: crimes by severity (seen or not), escalating response, the
-  army; police as a per-game option.
+  army; police as a per-game option (planned in [POLICE.md](POLICE.md)).
+- A co-op game mode, everyone together against the police (TODO, after the full police).
 - Chasing police cars don't avoid other cars and only know the roads, not shortcuts across pavements.
 - Gang members don't drive, don't fight each other, and chase in a straight line (no path finding).
 - Points popping up where they're earned, like GTA2.
