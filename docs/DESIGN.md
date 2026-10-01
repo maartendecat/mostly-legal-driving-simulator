@@ -323,8 +323,8 @@ along a lane; and the danger check reacted to traffic merely driving past.)
   traffic otherwise.
 - **Stealing one:** like any traffic car (its driver gets out and runs); the fire is then on its
   own. Its model is a truck with fire-engine stats (long, slow to accelerate, 220 health).
-- **Looks:** the Car Kit we ship has no fire truck, so the Kenney pack paints its truck
-  fire-engine red, with the police car's flashing lights on the roof.
+- **Looks:** the Car Kit's fire truck, with the police car's flashing lights on the roof (the
+  placeholder pack draws a red truck).
 - **Measured** (10 cities, a parked car blown up 5 blocks from a player): truck out 0.5 s after the
   explosion, spraying after 5–17 s (typically 5–6), fire out 2.5 s later, truck gone 4–15 s after
   that.
