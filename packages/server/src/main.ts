@@ -24,18 +24,19 @@ const staticDir = process.env.STATIC_DIR ?? (existsSync(builtClient) ? builtClie
 
 // TRAFFIC / PEDESTRIANS / GANG_MEMBERS / COPS / POLICE_CARS: cars driving and people walking
 // around each room's city: civilians, members per gang (on their turf), cops on foot, and police
-// cars besides the other traffic (0 for none).
+// cars besides the other traffic (0 for none). FIRE_TRUCKS: how many fire trucks can be out at once.
 const traffic = Number(process.env.TRAFFIC ?? 16);
 const pedestrians = Number(process.env.PEDESTRIANS ?? 40);
 const gangMembers = Number(process.env.GANG_MEMBERS ?? 6);
 const cops = Number(process.env.COPS ?? 6);
 const policeCars = Number(process.env.POLICE_CARS ?? 2);
+const fireTrucks = Number(process.env.FIRE_TRUCKS ?? 2);
 
-const server = new GameServer({ port, seed, staticDir, traffic, pedestrians, gangMembers, cops, policeCars, match: { modes, scoreLimits, timeLimitTicks: secondsToTicks(minutes * 60) } });
+const server = new GameServer({ port, seed, staticDir, traffic, pedestrians, gangMembers, cops, policeCars, fireTrucks, match: { modes, scoreLimits, timeLimitTicks: secondsToTicks(minutes * 60) } });
 await server.listening();
 console.log(`Game server listening on port ${server.port} (city seed ${seed})`);
 console.log(staticDir ? `Serving the game at http://localhost:${server.port}` : 'Not serving the game page (run npm run build first, or use the Vite dev server)');
-console.log(`Modes: ${modes.join(' → ')}, ${minutes > 0 ? `${minutes} min` : 'no time limit'} per match; ${traffic} traffic cars, ${pedestrians} pedestrians, ${gangMembers} members per gang, ${cops} cops and ${policeCars} police cars per room`);
+console.log(`Modes: ${modes.join(' → ')}, ${minutes > 0 ? `${minutes} min` : 'no time limit'} per match; ${traffic} traffic cars, ${pedestrians} pedestrians, ${gangMembers} members per gang, ${cops} cops, ${policeCars} police cars and ${fireTrucks} fire trucks per room`);
 
 setInterval(() => {
   if (server.playerCount > 0) console.log(`tick ${server.world.tick} · ${server.playerCount} player(s)`);

@@ -1,6 +1,7 @@
 import { randomPick } from './math';
 import { provokeGang } from './gangs';
 import { reportCrime } from './police';
+import { WRECK_BURN_TICKS } from './fire';
 import { CORPSE_TICKS, ejectDriver } from './pedestrians';
 import { secondsToTicks } from './time';
 import { CAR_MODELS } from './vehicles';
@@ -130,7 +131,9 @@ export function updateLifecycle(world: World): void {
   }
   for (const car of [...world.cars.values()]) {
     if (!car.wrecked && car.explodeAt !== null && world.tick >= car.explodeAt) explodeCar(world, car);
-    else if (car.wrecked && car.removeAt !== null && world.tick >= car.removeAt) replaceWreck(world, car);
+    else if (car.wrecked && car.burnsUntil !== null && world.tick >= car.burnsUntil) car.burnsUntil = null; // burnt out
+    // (A wreck still on fire stays until the fire's out.)
+    else if (car.wrecked && car.burnsUntil === null && car.removeAt !== null && world.tick >= car.removeAt) replaceWreck(world, car);
   }
 }
 
@@ -144,6 +147,7 @@ function explodeCar(world: World, car: Car): void {
   car.wrecked = true;
   car.explodeAt = null;
   car.removeAt = world.tick + WRECK_TICKS;
+  car.burnsUntil = world.tick + WRECK_BURN_TICKS;
   car.vx *= 0.3;
   car.vy *= 0.3;
   world.events.push({

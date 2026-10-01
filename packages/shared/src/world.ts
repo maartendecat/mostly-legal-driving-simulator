@@ -8,6 +8,7 @@ import { clamp, nextRandom, randomPick, wrapAngle } from './math';
 import { TICK_DT, secondsToTicks } from './time';
 import { CAR_MODELS, type CarModel, type CarModelId } from './vehicles';
 import type { Grudge } from './gangs';
+import { stepFire } from './fire';
 import { reportCrime, stepPolice, type WantedRecord } from './police';
 import type { WeaponId } from './weapons';
 
@@ -111,8 +112,12 @@ export interface Car {
   traffic: TrafficState | null;
   /** A police car (see police.ts). */
   police: boolean;
-  /** Its lights flashing: chasing someone. */
+  /** Its lights flashing: chasing someone, or a fire truck on its way to a fire. */
   siren: boolean;
+  /** A wreck still on fire: until this tick, unless the fire brigade puts it out (see fire.ts). */
+  burnsUntil: number | null;
+  /** A fire truck spraying water: where at. */
+  spray: { x: number; y: number } | null;
 }
 
 export interface World {
@@ -138,6 +143,8 @@ export interface World {
   copTarget: number;
   /** How many police cars to keep driving around, besides the other traffic (0: none). */
   policeCarTarget: number;
+  /** How many fire trucks can be out at once (0: no fire brigade). */
+  fireTruckTarget: number;
   /** Players the police are after, until when (see police.ts). */
   wanted: WantedRecord[];
   /** Gangs angry with players who hurt their members (see gangs.ts). */
@@ -155,9 +162,11 @@ export interface WorldOptions {
   cops?: number;
   /** Number of police cars driving around (besides `traffic`). */
   policeCars?: number;
+  /** Number of fire trucks that can be out at once. */
+  fireTrucks?: number;
 }
 
-export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians = 0, gangMembers = 0, cops = 0, policeCars = 0 }: WorldOptions = {}): World {
+export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians = 0, gangMembers = 0, cops = 0, policeCars = 0, fireTrucks = 0 }: WorldOptions = {}): World {
   const world: World = {
     tick: 0,
     map,
@@ -174,6 +183,7 @@ export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians 
     gangTarget: gangMembers,
     copTarget: cops,
     policeCarTarget: policeCars,
+    fireTruckTarget: fireTrucks,
     wanted: [],
     grudges: [],
   };
@@ -202,6 +212,8 @@ export function spawnCar(world: World, model: CarModelId, x: number, y: number, 
     traffic: null,
     police: false,
     siren: false,
+    burnsUntil: null,
+    spray: null,
   };
   world.cars.set(car.id, car);
   return car;
@@ -250,7 +262,7 @@ export function cloneWorld(world: World): World {
   return {
     ...world,
     peds: new Map([...world.peds].map(([id, ped]) => [id, { ...ped, ammo: { ...ped.ammo }, ai: ped.ai && { ...ped.ai, target: { ...ped.ai.target }, panicFrom: ped.ai.panicFrom && { ...ped.ai.panicFrom }, panicPath: ped.ai.panicPath && { ...ped.ai.panicPath }, lookAt: ped.ai.lookAt && { ...ped.ai.lookAt }, seenBodies: [...ped.ai.seenBodies] } }])),
-    cars: new Map([...world.cars].map(([id, car]) => [id, { ...car, traffic: car.traffic && { ...car.traffic, route: car.traffic.route.map((p) => ({ ...p })) } }])),
+    cars: new Map([...world.cars].map(([id, car]) => [id, { ...car, spray: car.spray && { ...car.spray }, traffic: car.traffic && { ...car.traffic, route: car.traffic.route.map((p) => ({ ...p })), goingHome: car.traffic.goingHome && { ...car.traffic.goingHome } } }])),
     projectiles: new Map([...world.projectiles].map(([id, p]) => [id, { ...p }])),
     pickups: new Map([...world.pickups].map(([id, p]) => [id, { ...p }])),
     events: [],
@@ -321,6 +333,7 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
   stepProjectiles(world, dt);
   stepPedestrians(world, dt);
   stepPolice(world);
+  stepFire(world);
   updateLifecycle(world);
   maintainTraffic(world);
   maintainPedestrians(world);
@@ -373,6 +386,7 @@ function tryEnterCar(world: World, ped: Ped): boolean {
   }
   best.traffic = null;
   best.siren = false;
+  best.spray = null;
   best.driverId = ped.id;
   ped.carId = best.id;
   return true;

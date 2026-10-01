@@ -43,6 +43,8 @@ export interface GameRoomOptions {
   cops: number;
   /** Police cars driving around, besides the other traffic. */
   policeCars: number;
+  /** Fire trucks that can be out at once. */
+  fireTrucks: number;
 }
 
 export interface Player {
@@ -82,6 +84,7 @@ export class GameRoom {
       gangMembers: options.gangMembers,
       cops: options.cops,
       policeCars: options.policeCars,
+      fireTrucks: options.fireTrucks,
     });
     this.match = new Match(options.match, this.world);
     this.emptySince = this.world.tick;

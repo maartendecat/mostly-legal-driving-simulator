@@ -14,7 +14,7 @@ import {
   type WeaponId,
 } from '@game/shared';
 import type { AssetPack, EffectView, EntityView, PickupViewState } from '../AssetPack';
-import { BloodPool, CarDamageEffects, WalkAnimation, box, carDamage, disposeObject, hash } from '../common';
+import { BloodPool, CarDamageEffects, WalkAnimation, WaterJet, box, carDamage, disposeObject, hash } from '../common';
 
 const GROUND_COLORS: Record<number, number> = {
   [Block.Road]: 0x3a3a3f,
@@ -113,7 +113,7 @@ export class PlaceholderPack implements AssetPack {
   createCarView(car: Car): EntityView<Car> {
     const m = CAR_MODELS[car.model];
     const group = new THREE.Group();
-    const isTruck = car.model === 'truck';
+    const isTruck = car.model === 'truck' || car.model === 'fireTruck';
     const paint = new THREE.Color(car.color);
 
     const body = box(m.length, m.width, 0.3, car.color);
@@ -141,6 +141,8 @@ export class PlaceholderPack implements AssetPack {
     }
 
     const effects = new CarDamageEffects(m);
+    const jet = new WaterJet(new THREE.Vector3(m.length * 0.15, 0, 0.55));
+    group.add(jet.object);
     group.add(effects.object);
 
     const bodyMaterial = body.material as THREE.MeshLambertMaterial;
@@ -154,6 +156,7 @@ export class PlaceholderPack implements AssetPack {
         cabinMaterial.color.copy(cabinPaint).lerp(burnt, state.wrecked ? 1 : damage * 0.6);
         lights.forEach((light) => (light.visible = !state.wrecked));
         effects.update(dt, state);
+        jet.update(dt, state);
       },
       dispose: () => disposeObject(group),
     };

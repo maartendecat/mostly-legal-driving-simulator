@@ -1,6 +1,7 @@
 import { NO_INPUT, type PlayerInput } from './input';
 import { Block, DIRECTIONS, Lane, laneAt, type BlockMap } from './map';
 import { nextRandom, randomPick, wrapAngle } from './math';
+import { fireTruckInput, isFireTruck } from './fire';
 import { pursuitInput } from './police';
 import { secondsToTicks } from './time';
 import { CAR_MODELS } from './vehicles';
@@ -33,6 +34,12 @@ export interface TrafficState {
   passing: number | null;
   /** A police car chasing a wanted player (see police.ts); `route` is then its way to them. */
   pursuing: number | null;
+  /** A fire truck heading for a burning wreck (see fire.ts), how long it's been on its way, and how long it's been spraying. */
+  fire: number | null;
+  missionTicks: number;
+  sprayTicks: number;
+  /** A fire truck driving back to its station afterwards: a point far away, out of sight. */
+  goingHome: { x: number; y: number } | null;
 }
 
 const CRUISE_SPEED = 4.5;
@@ -68,7 +75,7 @@ export function startTraffic(world: World, car: Car): boolean {
     car.traffic = null;
     return false;
   }
-  car.traffic = { route: [start], stuckTicks: 0, reverseTicks: 0, blockedTicks: 0, passing: null, pursuing: car.traffic?.pursuing ?? null };
+  car.traffic = { route: [start], stuckTicks: 0, reverseTicks: 0, blockedTicks: 0, passing: null, pursuing: car.traffic?.pursuing ?? null, fire: car.traffic?.fire ?? null, missionTicks: car.traffic?.missionTicks ?? 0, sprayTicks: 0, goingHome: car.traffic?.goingHome ?? null };
   return true;
 }
 
@@ -81,6 +88,7 @@ export function trafficInput(world: World, car: Car): PlayerInput {
     return NO_INPUT;
   }
   if (traffic.pursuing !== null) return pursuitInput(world, car, traffic);
+  if (traffic.fire !== null || traffic.goingHome) return fireTruckInput(world, car, traffic);
   const cos = Math.cos(car.heading);
   const sin = Math.sin(car.heading);
   const forward = car.vx * cos + car.vy * sin;
@@ -154,7 +162,7 @@ export function maintainTraffic(world: World): void {
   let police = 0;
   for (const car of world.cars.values()) {
     if (car.traffic && car.police) police++;
-    else if (car.traffic) count++;
+    else if (car.traffic && !isFireTruck(car)) count++;
   }
   const addPolice = police < world.policeCarTarget;
   if (count >= world.trafficTarget && !addPolice) return;
@@ -381,7 +389,7 @@ function nearestLane(map: BlockMap, car: Car): TrafficWaypoint | null {
 
 /** Every one-way lane cell (not intersections), where new traffic can start. Cached per map. */
 const laneCellCache = new WeakMap<BlockMap, TrafficWaypoint[]>();
-function laneCells(map: BlockMap): TrafficWaypoint[] {
+export function laneCells(map: BlockMap): TrafficWaypoint[] {
   let cells = laneCellCache.get(map);
   if (!cells) {
     cells = [];

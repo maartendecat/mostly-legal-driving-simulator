@@ -47,7 +47,9 @@ hurt one of them and the whole gang is after you for a while. Cops patrol the ci
 police cars drive around (`POLICE_CARS=2`). Ram a police car (or hurt a cop, or steal their car)
 and the police are after you: police cars give chase with lights flashing, and once you stop, cops
 jump out to arrest you. BUSTED: your weapons are gone and you're back elsewhere a moment later.
-Stay out of their sight for 30 seconds and they give up.
+Stay out of their sight for 30 seconds and they give up. Blown-up cars keep burning for a while,
+and a fire truck comes (lights flashing) to put the fire out with its water cannon, then drives off
+again (`FIRE_TRUCKS=2`: how many can be out at once).
 
 Online games are matches in one of GTA2's three modes:
 
@@ -95,7 +97,7 @@ With Fly.io, for example: `fly launch` (it finds the Dockerfile; internal port 8
 - Rooms live in the server's memory: run exactly **one** instance, and a restart ends all games.
 - `GET /healthz` returns `{ ok, rooms, players }` for health checks.
 - The same environment variables apply (`MODE`, `SCORE_LIMIT`, `TIME_LIMIT`, `TRAFFIC`,
-  `PEDESTRIANS`, `GANG_MEMBERS`, `COPS`, `POLICE_CARS`, `SEED`, `PORT`).
+  `PEDESTRIANS`, `GANG_MEMBERS`, `COPS`, `POLICE_CARS`, `FIRE_TRUCKS`, `SEED`, `PORT`).
 - After joining a room, the address bar is an invite link (`…/#room=abc123`): send it to friends
   and they land in the same room.
 
@@ -180,7 +182,7 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 1. ✅ More kinds of people: gangs, cops, and more variety among pedestrians
 2. ✅ Pedestrians reacting to bodies
 3. ✅ Traffic drivers stepping out when a player takes their car
-4. Fire trucks that come when fire breaks out (exploding cars)
+4. ✅ Fire trucks that come when fire breaks out (exploding cars)
 5. Police as a game option: first an analysis of how they should behave (minor crimes only when a
    police car sees it, major crimes a proactive response, eventually the army with tanks and
    helicopters), then the implementation. ✅ A first part already: ramming a police car gets the

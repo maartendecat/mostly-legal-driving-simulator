@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Block, CAR_MODELS, isBusted, type BlockMap, type Car, type CarModelId, type Ped, type PedLook, type Pickup, type WeaponId } from '@game/shared';
 import type { AssetPack, EntityView, PickupViewState } from '../AssetPack';
-import { BloodPool, CarDamageEffects, WalkAnimation, carDamage, hash } from '../common';
+import { BloodPool, CarDamageEffects, WalkAnimation, WaterJet, carDamage, hash } from '../common';
 import { PlaceholderPack, hasDash } from '../placeholder/PlaceholderPack';
 
 const BASE = `${import.meta.env.BASE_URL}assets/kenney/`;
@@ -13,6 +13,8 @@ const CAR_VARIANTS: Record<CarModelId, string[]> = {
   sedan: ['sedan', 'taxi', 'suv'],
   sports: ['sedan-sports', 'race'],
   truck: ['truck', 'delivery', 'garbage-truck'],
+  // The Car Kit we ship has no fire truck: the plain truck, painted fire-engine red (see createCarView).
+  fireTruck: ['truck'],
 };
 
 /** Which Top-down Shooter character plays whom: players and civilians by look, gangs, and cops. */
@@ -21,6 +23,9 @@ const GANG_CHARACTERS = ['hitman1', 'robot1', 'zombie1'];
 const COP_CHARACTER = 'manBlue';
 /** The blue shirt darkened to a police uniform's navy. */
 const COP_TINT = 0x8a9cff;
+const FIRE_TRUCK_TINT = 0xff3a2e;
+/** Multiplying alone makes it a dark maroon: a little glow brings it up to fire-engine red. */
+const FIRE_TRUCK_GLOW = 0x4a0800;
 /** Police cars (and only they) use the Car Kit's police car. */
 const POLICE_CAR = 'police';
 /** Their lights, flashing red and blue while they chase someone (switching this many times a second). */
@@ -207,14 +212,21 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
       return light;
     });
     let sirenTime = 0;
-    const white = new THREE.Color(0xffffff);
+    const jet = new WaterJet(new THREE.Vector3(m.length * 0.15, 0, template.size.z * widthScale + 0.1));
+    group.add(jet.object);
+    // Fire trucks: the truck's light paint multiplied to fire-engine red.
+    const white = new THREE.Color(car.model === 'fireTruck' ? FIRE_TRUCK_TINT : 0xffffff);
     const burnt = new THREE.Color(0x1c1c1c);
     return {
       object: group,
       update: (dt, state) => {
         const damage = carDamage(state);
-        for (const material of materials) material.color.copy(white).lerp(burnt, state.wrecked ? 0.85 : damage * 0.55);
+        for (const material of materials) {
+          material.color.copy(white).lerp(burnt, state.wrecked ? 0.85 : damage * 0.55);
+          if (car.model === 'fireTruck') material.emissive.setHex(state.wrecked ? 0x000000 : FIRE_TRUCK_GLOW);
+        }
         effects.update(dt, state);
+        jet.update(dt, state);
         sirenTime = state.siren ? sirenTime + dt : 0;
         const phase = Math.floor(sirenTime * SIREN_RATE) % 2;
         lights.forEach((light, i) => (light.visible = state.siren && phase === i));
@@ -222,6 +234,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
       dispose: () => {
         materials.forEach((material) => material.dispose());
         lights.forEach((light) => (light.geometry.dispose(), (light.material as THREE.Material).dispose()));
+        jet.dispose();
         effects.object.traverse((obj) => obj instanceof THREE.Mesh && (obj.geometry.dispose(), (obj.material as THREE.Material).dispose()));
       },
     };

@@ -36,6 +36,11 @@ export const CAR_MODELS = {
     id: 'truck', name: 'Truck', length: 1.6, width: 0.65,
     maxSpeed: 9, reverseSpeed: 3, accel: 5, brake: 12, turnRate: 2.0, grip: 10, handbrakeGrip: 2.0, health: 180,
   },
+  /** Only the fire brigade drives these (see fire.ts); they never appear parked or in traffic. */
+  fireTruck: {
+    id: 'fireTruck', name: 'Fire truck', length: 1.8, width: 0.7,
+    maxSpeed: 10, reverseSpeed: 3, accel: 5, brake: 12, turnRate: 2.0, grip: 10, handbrakeGrip: 2.0, health: 220,
+  },
 } as const satisfies Record<string, CarModel>;
 
 export type CarModelId = keyof typeof CAR_MODELS;

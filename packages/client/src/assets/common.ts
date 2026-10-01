@@ -28,7 +28,58 @@ export function carDamage(car: Car): number {
   return car.wrecked ? 1 : 1 - car.health / CAR_MODELS[car.model].health;
 }
 
-/** Smoke when a car is badly damaged, flames while it burns before exploding. */
+/**
+ * A fire truck's water cannon: drops of water arcing from the roof to where it's spraying
+ * (`car.spray`, in world coordinates; the view is in the car's own frame).
+ */
+export class WaterJet {
+  readonly object = new THREE.Group();
+  private readonly drops: THREE.Mesh[] = [];
+  private time = 0;
+
+  constructor(
+    private readonly nozzle: THREE.Vector3,
+    count = 14,
+  ) {
+    const material = new THREE.MeshBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.75 });
+    const geometry = new THREE.SphereGeometry(0.07, 8, 6);
+    for (let i = 0; i < count; i++) {
+      const drop = new THREE.Mesh(geometry, material);
+      this.drops.push(drop);
+      this.object.add(drop);
+    }
+    this.object.visible = false;
+  }
+
+  update(dt: number, car: Car): void {
+    this.object.visible = car.spray !== null;
+    if (!car.spray) return;
+    this.time += dt;
+    // The target in the car's frame (x forward, y left).
+    const dx = car.spray.x - car.x;
+    const dy = car.spray.y - car.y;
+    const cos = Math.cos(car.heading);
+    const sin = Math.sin(car.heading);
+    const tx = dx * cos + dy * sin;
+    const ty = -dx * sin + dy * cos;
+    this.drops.forEach((drop, i) => {
+      const t = (this.time * 1.6 + i / this.drops.length) % 1;
+      drop.position.set(
+        this.nozzle.x + (tx - this.nozzle.x) * t,
+        this.nozzle.y + (ty - this.nozzle.y) * t,
+        this.nozzle.z * (1 - t) + 0.15 * t + Math.sin(Math.PI * t) * 0.6,
+      );
+      drop.scale.setScalar(0.7 + t * 0.8);
+    });
+  }
+
+  dispose(): void {
+    this.drops[0]?.geometry.dispose();
+    (this.drops[0]?.material as THREE.Material | undefined)?.dispose();
+  }
+}
+
+/** Smoke when a car is badly damaged, flames while it burns before exploding and while a wreck burns. */
 export class CarDamageEffects {
   readonly object = new THREE.Group();
   private readonly smoke: THREE.Mesh;
@@ -49,7 +100,7 @@ export class CarDamageEffects {
 
   update(dt: number, car: Car): void {
     this.time += dt;
-    const burning = car.explodeAt !== null && !car.wrecked;
+    const burning = (car.explodeAt !== null && !car.wrecked) || (car.wrecked && car.burnsUntil !== null);
     this.flames.visible = burning;
     if (burning) this.flames.children.forEach((flame, i) => flame.scale.setScalar(0.8 + 0.4 * Math.abs(Math.sin(this.time * 12 + i * 2))));
     this.smoke.visible = !burning && carDamage(car) > 0.6;

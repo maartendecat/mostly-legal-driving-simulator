@@ -1,7 +1,7 @@
 import { isDead } from './damage';
 import { NO_INPUT, type PlayerInput } from './input';
-import { Block, kindAt, lineOfSight, type BlockMap } from './map';
-import { wrapAngle } from './math';
+import { lineOfSight } from './map';
+import { driveTowards, forwardSpeed } from './navigate';
 import { ejectDriver } from './pedestrians';
 import { secondsToTicks } from './time';
 import { startTraffic, type TrafficState } from './traffic';
@@ -36,10 +36,6 @@ const PURSUIT_TURN_SPEED = 4;
 /** Pulls up when the suspect is this close and (nearly) standing still, then the cops get out. */
 const PULL_UP_DISTANCE = 4;
 const SUSPECT_STOPPED_SPEED = 2;
-/** How often a chasing car works out its way to the suspect along the roads. */
-const REPLAN_TICKS = 30;
-const STUCK_TICKS = secondsToTicks(1);
-const REVERSE_TICKS = secondsToTicks(0.8);
 /** A car going slower than this can be arrested out of. */
 export const ARRESTABLE_CAR_SPEED = 1;
 /** Taken away for this long before they're back (as long as a respawn after dying). */
@@ -161,13 +157,8 @@ function seenByPolice(world: World, ped: Ped): boolean {
 export function pursuitInput(world: World, car: Car, traffic: TrafficState): PlayerInput {
   const suspect = traffic.pursuing === null ? undefined : world.peds.get(traffic.pursuing);
   if (!suspect) return NO_INPUT;
-  const cos = Math.cos(car.heading);
-  const sin = Math.sin(car.heading);
-  const forward = car.vx * cos + car.vy * sin;
-  if (traffic.reverseTicks > 0) {
-    traffic.reverseTicks--;
-    return { ...NO_INPUT, down: true, left: traffic.reverseTicks % 40 < 20 };
-  }
+  const forward = forwardSpeed(car);
+  if (traffic.reverseTicks > 0) return driveTowards(world, car, traffic, suspect.x, suspect.y, PURSUIT_SPEED, PURSUIT_TURN_SPEED);
 
   const suspectCar = suspect.carId === null ? undefined : world.cars.get(suspect.carId);
   const suspectSpeed = suspectCar ? carSpeed(suspectCar) : 0;
@@ -182,75 +173,5 @@ export function pursuitInput(world: World, car: Car, traffic: TrafficState): Pla
     return NO_INPUT;
   }
 
-  // Aim straight at them when there's a clear view; otherwise follow the roads towards them.
-  let aim = { x: suspect.x, y: suspect.y };
-  if (!lineOfSight(world.map, car.x, car.y, suspect.x, suspect.y)) {
-    if (traffic.route.length === 0 || world.tick % REPLAN_TICKS === car.id % REPLAN_TICKS) {
-      traffic.route = roadPath(world.map, car.x, car.y, suspect.x, suspect.y).map((p) => ({ ...p, dir: 0 }));
-    }
-    while (traffic.route.length > 1 && Math.hypot(traffic.route[0]!.x - car.x, traffic.route[0]!.y - car.y) < 1.5) traffic.route.shift();
-    if (traffic.route.length > 0) aim = traffic.route[0]!;
-  } else {
-    traffic.route = [];
-  }
-
-  const turnNeeded = wrapAngle(Math.atan2(aim.y - car.y, aim.x - car.x) - car.heading);
-  const speed = Math.abs(turnNeeded) > 0.5 ? PURSUIT_TURN_SPEED : PURSUIT_SPEED;
-  if (Math.abs(forward) < 0.3) traffic.stuckTicks++;
-  else traffic.stuckTicks = 0;
-  if (traffic.stuckTicks > STUCK_TICKS) {
-    traffic.stuckTicks = 0;
-    traffic.reverseTicks = REVERSE_TICKS;
-  }
-  return {
-    ...NO_INPUT,
-    left: turnNeeded > 0.05,
-    right: turnNeeded < -0.05,
-    up: forward < speed - 0.3,
-    down: forward > speed + 0.8,
-  };
-}
-
-/**
- * The way along the roads (cell centres, a few apart) from one point to another: a breadth-first
- * search over road cells, from the road cell nearest the start to the one nearest the end.
- */
-export function roadPath(map: BlockMap, x0: number, y0: number, x1: number, y1: number): { x: number; y: number }[] {
-  const start = nearestRoad(map, Math.floor(x0), Math.floor(y0));
-  const goal = nearestRoad(map, Math.floor(x1), Math.floor(y1));
-  if (start === null || goal === null) return [];
-  const previous = new Int32Array(map.width * map.height).fill(-1);
-  previous[start] = start;
-  const queue = [start];
-  for (let head = 0; head < queue.length && previous[goal] === -1; head++) {
-    const cell = queue[head]!;
-    const cx = cell % map.width;
-    const cy = Math.floor(cell / map.width);
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const nx = cx + dx;
-      const ny = cy + dy;
-      const next = ny * map.width + nx;
-      if (kindAt(map, nx, ny) !== Block.Road || previous[next] !== -1) continue;
-      previous[next] = cell;
-      queue.push(next);
-    }
-  }
-  if (previous[goal] === -1) return [];
-  const cells: number[] = [];
-  for (let cell = goal; cell !== start; cell = previous[cell]!) cells.push(cell);
-  cells.reverse();
-  // Every other cell is plenty to steer by.
-  return cells.filter((_, i) => i % 2 === 1 || i === cells.length - 1).map((cell) => ({ x: (cell % map.width) + 0.5, y: Math.floor(cell / map.width) + 0.5 }));
-}
-
-function nearestRoad(map: BlockMap, cx: number, cy: number): number | null {
-  for (let r = 0; r <= 4; r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-        if (kindAt(map, cx + dx, cy + dy) === Block.Road) return (cy + dy) * map.width + cx + dx;
-      }
-    }
-  }
-  return null;
+  return driveTowards(world, car, traffic, suspect.x, suspect.y, PURSUIT_SPEED, PURSUIT_TURN_SPEED);
 }

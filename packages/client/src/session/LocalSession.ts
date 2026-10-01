@@ -7,6 +7,7 @@ const OFFLINE_PEDESTRIANS = 40;
 const OFFLINE_GANG_MEMBERS = 6;
 const OFFLINE_COPS = 6;
 const OFFLINE_POLICE_CARS = 2;
+const OFFLINE_FIRE_TRUCKS = 2;
 
 /** Single-player: runs the shared simulation in the browser at the fixed tick rate. */
 export class LocalSession implements GameSession {
@@ -27,6 +28,7 @@ export class LocalSession implements GameSession {
       gangMembers: OFFLINE_GANG_MEMBERS,
       cops: OFFLINE_COPS,
       policeCars: OFFLINE_POLICE_CARS,
+      fireTrucks: OFFLINE_FIRE_TRUCKS,
     });
     this.myPedId = spawnPed(this.world).id;
     this.players = [{ pedId: this.myPedId, name: 'You', frags: 0, deaths: 0, points: 0, itTicks: 0 }];
