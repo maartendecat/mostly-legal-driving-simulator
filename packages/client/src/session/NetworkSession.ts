@@ -148,7 +148,8 @@ export class NetworkSession implements GameSession {
 
   get status(): string {
     if (!this.connected) return 'Disconnected from server';
-    const players = this.serverWorld.peds.size;
+    // Players in the room (not everyone walking around: the city has its own people too).
+    const players = this.players.length;
     const ping = this.pingMs === null ? '' : ` · ${Math.round(this.pingMs)} ms`;
     const lag = this.lagMs > 0 ? ` (incl. ${this.lagMs} ms simulated lag)` : '';
     return `Online · ${this.roomName} · ${players} player${players === 1 ? '' : 's'}${ping}${lag}`;
