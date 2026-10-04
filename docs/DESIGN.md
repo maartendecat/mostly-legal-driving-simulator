@@ -91,9 +91,12 @@ A map is a grid of cells (`BlockMap`):
 | `variants` | free per-cell style data for asset packs (building colour, road centre lines) |
 | `lanes` | traffic lanes: a bit per driving direction, plus an intersection bit |
 | `territory` | which gang's turf a cell is (0: neutral ground) |
-| spawns | player spawn points (24), parked cars (28), weapon pickups (16) |
+| spawns | player spawn points (96), parked cars (84), weapon pickups (64), cop bribes (6), spray shops (4) |
 
-**The generated city** (`generateCity(seed)`) is a 6×6 grid of city blocks, 77×77 cells:
+**The generated city** (`generateCity(seed)`) is a 12×12 grid of city blocks (`CITY_BLOCKS`),
+149×149 cells. (It was 6×6, 77×77 cells, until the city was doubled each way; counts are given for
+6×6 and scaled by area: parked cars ×3, spawn points and crates ×4, bribes and spray shops ×2. Tests
+that place things at fixed spots still use a 6×6 city, `generateCity(seed, 6)`.)
 - Roads every 12 cells, **3 cells wide**: an outer lane each way plus an empty middle row (used for
   overtaking). Intersections where roads cross. A ring of pavement around every block.
 - Each block: 15% park (grass), 10% plaza (pavement), otherwise split into four buildings of 1–5
@@ -111,6 +114,11 @@ A map is a grid of cells (`BlockMap`):
 ## 5. One simulation tick
 
 `stepWorld(world, inputs)` in this order:
+
+(Cars are sorted into a grid of 8×8-block cells twice per tick, before driving and after the
+collisions, so looking for cars nearby doesn't go through every car; and the collisions only test
+cars close together along x. Profiling the 12×12 city found every-pair loops taking 80% of the
+time: 3.2 ms per tick, now 0.6.)
 
 1. **Peds:** edge-detect Enter and weapon switching; skip the dead; enter/exit cars; walk; switch
    weapons and fire.
@@ -197,6 +205,7 @@ speed-dependent understeer.
 | Frag | +1 per kill, −1 for killing yourself | first to 10 |
 | Points | +1,000 per kill, −500 for killing yourself, +100 per car you wreck, +10 per pedestrian | first to 10,000 |
 | Tag | time alive as "it" | first to 2:00 |
+| Together against the police (`coop`) | how long the team holds out | none: until everyone's out |
 
 - Accidents (no killer) only count as a death. If nobody reaches the limit, the leaders when time
   runs out (default 10 minutes) win; ties have several winners.
@@ -205,7 +214,20 @@ speed-dependent understeer.
   only the arrow to "it". Accidents and suicides don't pass "it" on. "It" is stored in the world, not
   just the match, because it changes the simulation (pickups, damage).
 - **Between matches:** 10 s intermission, everyone frozen (the client predicts no input too), then
-  scores reset and everyone respawns unarmed. `MODE=rotate` plays the three modes in turn.
+  scores reset and everyone respawns unarmed. `MODE=rotate` plays frag, points and tag in turn.
+- **Together against the police** (`coop`; the room's police are always on, army and all): everyone
+  is wanted from the start, and the pressure rises: a heat floor (`world.heatFloor`) from 10 (one
+  star) to 220 (the army) over four minutes, so 2 stars after 23 s, 3 after 57 s, 4 (SWAT) after
+  1:43, 5 after 2:40, the army at 4:00. Stars can't drop below it; bribes and spray shops only
+  help above it. Players can't hurt each other (`world.friendlyFire` off; their own rockets still
+  hurt themselves). Three lives each: dying or getting busted costs one; out of lives you watch
+  (respawn never comes, "Out of lives: watching the others"). When everyone's out the match ends;
+  the score is how long the team held out, with the room's best (kept from match to match). The
+  corner shows the time, the best, your lives and how many are still in.
+- **Points pop up** where they're earned (+100 over a wrecked car, +1,000 over a kill, −250 when
+  busted), as in GTA2: the match adds a `points` event wherever it gives points, sent only to the
+  player who earned them; the client floats the number up and fades it. Offline, a hidden
+  Points match counts them.
 
 ## 9. Traffic
 
@@ -236,13 +258,14 @@ Cars that drive themselves (`traffic.ts`, part of the shared simulation).
 - **Fire:** the driver of a traffic car that catches fire bails out the same way, running from the
   car, and gets clear before it blows (3 s). The car rolls to a stop. A car blown up by a rocket
   (0.3 s) takes its driver with it: no time to get out.
-- **Numbers:** a target per room (`TRAFFIC`, default 16). Missing traffic is added one car per tick
+- **Numbers:** a target per room (`TRAFFIC`, default 40). Missing traffic is added one car per tick
   at a free lane cell at least 14 blocks from every player, so nobody sees it appear. Total cars are
   capped so dropped-out traffic can't fill the city.
 
-**Measured over 3 minutes in three cities**, after tuning: on average about 14 of 16 traffic cars
-moving, at the worst moment 6–12, about 5 minor bumps. (The first version gridlocked within 30 s
-behind cars parked in the lanes; overtaking, kerb parking and right of way fixed that.)
+**Measured over 3 minutes in three cities**, after tuning (in the 6×6 city): on average about 14 of
+16 traffic cars moving, at the worst moment 6–12, about 5 minor bumps. (The first version gridlocked within 30 s
+behind cars parked in the lanes; overtaking, kerb parking and right of way fixed that.) In the 12×12
+city with 40 traffic cars: 93% moving on average.
 
 Not done: traffic lights, visible drivers, traffic on custom maps (needs lane data).
 
@@ -278,7 +301,7 @@ kinds: **civilians** (described first), **gang members** and **cops** (further d
   in Points mode, a gang member 20, a cop 50); no ring, arrow, name tag or kill feed line (unless they
   kill a player: then the feed names their gang, or "A cop").
 - **Bodies** stay for 20 s, then are cleared. **Numbers:** a target per room for each kind
-  (`PEDESTRIANS` civilians, default 40; `GANG_MEMBERS` per gang, default 6; `COPS`, default 6);
+  (`PEDESTRIANS` civilians, default 100; `GANG_MEMBERS` per gang, default 15; `COPS`, default 15);
   missing ones appear (one of each kind per tick) on a free pavement cell at least 14 blocks from
   every player; gang members on their own turf.
 
@@ -323,7 +346,7 @@ along a lane; and the danger check reacted to traffic merely driving past.)
 - **Fires:** a wreck burns for 25 s, or until it's put out. A car that has only just caught fire
   (3 s before it blows) isn't a job for the brigade: it's gone before anyone could get there.
 - **Dispatch:** every half second, each burning wreck no truck is dealing with gets one, up to
-  `FIRE_TRUCKS` (default 2) out at once. The truck appears on a lane 12–40 blocks from the fire
+  `FIRE_TRUCKS` (default 3) out at once. The truck appears on a lane 12–40 blocks from the fire
   and at least 16 from every player, so nobody sees it appear, with its lights flashing.
 - **Driving there:** the same driving as chasing police cars (`navigate.ts`): straight at the
   fire when in plain sight, otherwise along the roads, backing up when stuck; up to 9 blocks/s,
@@ -347,7 +370,7 @@ along a lane; and the danger check reacted to traffic merely driving past.)
 `helicopter.ts` and `sprayshop.ts`, following the plan in [POLICE.md](POLICE.md), all of which is
 now built (plus spray shops).
 
-- **Police on the streets:** police cars drive around with the traffic (`POLICE_CARS`, default 2;
+- **Police on the streets:** police cars drive around with the traffic (`POLICE_CARS`, default 5;
   sedans with a crew of two, drawn as the Car Kit's police car) and cops patrol on foot (`COPS`).
 - **Room option** (`POLICE`, or chosen when creating a room): `on` (the default, up to the army),
   `noarmy` (stops at five stars) or `off` (no cops, police cars or bribes, and nothing is a crime).
@@ -454,9 +477,9 @@ now built (plus spray shops).
   cars and a SWAT van out; 5 stars: two SWAT vans; 6 stars: the tank, the troop truck, the
   helicopter, two SWAT vans and the police cars, with about 6–12 cops and 4–15 SWAT and soldiers on
   foot at a time. Three stars and driving fast: a roadblock ahead within about 2 s.
-  A full city costs 0.4 ms per tick with nobody wanted, 0.8 ms with the army out (about 100 people
-  and 70 vehicles): fine on any server, but on a tenth of a CPU (Render's free plan) one such room
-  uses about half of it.
+  The 12×12 city with the default population costs 0.6 ms per tick with nobody wanted, 1.1 ms
+  with the army out (about 220 people and 180 vehicles): fine on any server, but on a tenth of a CPU
+  (Render's free plan) one room uses 35–65% of it.
 
 ## 13. Networking
 
@@ -661,14 +684,13 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 
 ## 19. Known limitations and next steps
 
-- Chasing units don't avoid other cars and
-  only know the roads. Helicopters' bullets come from where the helicopter is above the ground,
-  without a height.
+- Chasing units (police, SWAT, army, fire trucks) don't avoid other cars and only know the roads,
+  not shortcuts across pavements. Helicopters' bullets come from where the helicopter is above the
+  ground, without a height.
 - A co-op game mode, everyone together against the police (TODO, after the full police).
-- Chasing police cars don't avoid other cars and only know the roads, not shortcuts across pavements.
 - Gang members don't drive, don't fight each other, and chase in a straight line (no path finding).
 - Points popping up where they're earned, like GTA2.
 - Traffic only on generated cities; no traffic lights.
-- No mass in car crashes; no speed-dependent understeer.
+- No speed-dependent understeer.
 - A misprediction while bumping into another player's car shows as a short glide.
 - WebRTC/WebTransport and hit lag compensation: after playtesting over the internet.

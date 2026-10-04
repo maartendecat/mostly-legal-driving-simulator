@@ -1,13 +1,13 @@
-import { DEFAULT_MATCH_SETTINGS, DEFAULT_SERVER_PORT, MATCH_MODES, POLICE_MODES, TICK_RATE, secondsToTicks, type MatchMode, type PoliceMode, type WorldOptions } from '@game/shared';
+import { DEFAULT_MATCH_SETTINGS, DEFAULT_SERVER_PORT, MATCH_MODES, POLICE_MODES, VERSUS_MODES, TICK_RATE, secondsToTicks, type MatchMode, type PoliceMode, type WorldOptions } from '@game/shared';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { GameServer } from './GameServer';
 
 const port = Number(process.env.PORT ?? DEFAULT_SERVER_PORT);
 const seed = Number(process.env.SEED ?? 1234);
-// MODE: frag, points, tag, or rotate (all three in turn).
+// MODE: frag, points, tag, coop (together against the police), or rotate (frag, points and tag in turn).
 const mode = process.env.MODE ?? 'frag';
-const modes: MatchMode[] = mode === 'rotate' ? [...MATCH_MODES] : [mode as MatchMode];
+const modes: MatchMode[] = mode === 'rotate' ? [...VERSUS_MODES] : [mode as MatchMode];
 if (!modes.every((m) => MATCH_MODES.includes(m))) throw new Error(`MODE must be one of ${MATCH_MODES.join(', ')} or rotate, not "${mode}"`);
 // SCORE_LIMIT: frags, points or seconds as "it" (0 = none); only for a single mode.
 // TIME_LIMIT: match length in minutes (0 = none).
@@ -30,12 +30,12 @@ const staticDir = process.env.STATIC_DIR ?? (existsSync(builtClient) ? builtClie
 const police = (process.env.POLICE ?? 'on') as PoliceMode;
 if (!POLICE_MODES.includes(police)) throw new Error(`POLICE must be one of ${POLICE_MODES.join(', ')}`);
 const city: WorldOptions = {
-  traffic: Number(process.env.TRAFFIC ?? 16),
-  pedestrians: Number(process.env.PEDESTRIANS ?? 40),
-  gangMembers: Number(process.env.GANG_MEMBERS ?? 6),
-  cops: Number(process.env.COPS ?? 6),
-  policeCars: Number(process.env.POLICE_CARS ?? 2),
-  fireTrucks: Number(process.env.FIRE_TRUCKS ?? 2),
+  traffic: Number(process.env.TRAFFIC ?? 40),
+  pedestrians: Number(process.env.PEDESTRIANS ?? 100),
+  gangMembers: Number(process.env.GANG_MEMBERS ?? 15),
+  cops: Number(process.env.COPS ?? 15),
+  policeCars: Number(process.env.POLICE_CARS ?? 5),
+  fireTrucks: Number(process.env.FIRE_TRUCKS ?? 3),
   police,
 };
 

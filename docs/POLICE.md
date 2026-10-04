@@ -198,9 +198,9 @@ Taken after reviewing this analysis:
    found and approved when we get to step 3).
 6. **New rooms:** police **and army on** by default.
 
-## 10. Later: a co-op mode against the police
+## 10. A co-op mode against the police (built)
 
-A fourth game mode (TODO, not part of A5): **all players together against the police**, lasting as
+A fourth game mode, now built (see DESIGN.md §8 for the rules as built): **all players together against the police**, lasting as
 long as possible. Everyone starts wanted and the heat keeps rising over time, so the army comes
 sooner or later; players can't hurt each other. The match ends when everyone has been busted or
 killed (perhaps with a limited number of lives each), and the score is how long the team held out,

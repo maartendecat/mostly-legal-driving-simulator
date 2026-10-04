@@ -20,7 +20,7 @@ export const MAX_ROOM_NAME_LENGTH = 24;
 export const MAX_PLAYERS_PER_ROOM = 8;
 /** Upper bounds for what a room's creator can ask for. */
 export const MAX_TIME_LIMIT_MINUTES = 60;
-export const MAX_SCORE_LIMITS: Record<MatchMode, number> = { frag: 1000, points: 1_000_000, tag: 3600 };
+export const MAX_SCORE_LIMITS: Record<MatchMode, number> = { frag: 1000, points: 1_000_000, tag: 3600, coop: 0 };
 
 /** What a player chooses when creating a room. */
 export interface RoomSettings {

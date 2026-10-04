@@ -22,7 +22,7 @@ function normalized(snapshot: Snapshot): Snapshot {
 
 /** A busy few seconds: two players driving, one shooting, cars crashing, someone dying. */
 function busyWorld(): { world: World; step: (tick: number) => void } {
-  const world = createWorld(generateCity(3), 3);
+  const world = createWorld(generateCity(3, 6), 3);
   const car = world.cars.values().next().value!;
   const driver = spawnPed(world, car.x, car.y);
   const gunner = spawnPed(world, 2.5, 30.5);
@@ -61,7 +61,7 @@ test('applying each delta rebuilds exactly the snapshot the server sent', () => 
 });
 
 test('a quiet city costs almost nothing: unchanged entities are not sent', () => {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   spawnPed(world);
   const before = quantizeSnapshot(captureSnapshot(world));
   stepWorld(world, new Map());
@@ -73,7 +73,7 @@ test('a quiet city costs almost nothing: unchanged entities are not sent', () =>
 });
 
 test('a delta only carries the fields that changed', () => {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   const ped = spawnPed(world);
   const before = quantizeSnapshot(captureSnapshot(world));
   stepWorld(world, new Map([[ped.id, { ...NO_INPUT, left: true }]]));
@@ -83,7 +83,7 @@ test('a delta only carries the fields that changed', () => {
 });
 
 test('quantizing keeps numbers within 0.0001 and leaves whole numbers alone', () => {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   const car = world.cars.values().next().value!;
   Object.assign(car, { x: 12.3456789, heading: Math.PI, health: 80 });
   const sent = quantizeSnapshot(captureSnapshot(world)).cars.find((c) => c.id === car.id)!;

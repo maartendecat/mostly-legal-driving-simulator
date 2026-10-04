@@ -42,6 +42,8 @@ export function isDead(ped: Ped): boolean {
  */
 export function damagePed(world: World, ped: Ped, amount: number, attackerId: number | null, cause: DamageCause): void {
   if (isDead(ped) || amount <= 0) return;
+  // Co-op: players can't hurt each other (only themselves, with their own rockets).
+  if (!world.friendlyFire && ped.kind === 'player' && attackerId !== null && attackerId !== ped.id && world.peds.get(attackerId)?.kind === 'player') return;
   if (ped.kind === 'gangster') provokeGang(world, ped, attackerId);
   ped.health -= amount;
   if (ped.health > 0) {

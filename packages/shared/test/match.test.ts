@@ -27,7 +27,7 @@ function settings(overrides: Partial<MatchSettings> & { mode?: MatchMode; limit?
   return {
     ...DEFAULT_MATCH_SETTINGS,
     modes: [mode],
-    scoreLimits: { frag: 3, points: 3000, tag: 100, ...(limit !== undefined ? { [mode]: limit } : {}) },
+    scoreLimits: { frag: 3, points: 3000, tag: 100, coop: 0, ...(limit !== undefined ? { [mode]: limit } : {}) },
     timeLimitTicks: 600,
     intermissionTicks: 60,
     ...rest,
@@ -35,7 +35,7 @@ function settings(overrides: Partial<MatchSettings> & { mode?: MatchMode; limit?
 }
 
 function setup(players = 3, matchSettings = settings()): { world: World; match: Match; peds: Ped[] } {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   world.cars.clear();
   world.pickups.clear();
   const match = new Match(matchSettings, world);
@@ -110,7 +110,7 @@ test('after the intermission everyone starts fresh: scores reset, full health, u
   wait(world, match, 60);
   assert.equal(match.state.phase, 'playing');
   assert.deepEqual(match.state.winnerIds, []);
-  assert.deepEqual(match.scores.get(alice!.id), { frags: 0, deaths: 0, points: 0, itTicks: 0 });
+  assert.deepEqual(match.scores.get(alice!.id), { frags: 0, deaths: 0, points: 0, itTicks: 0, lives: 3 });
   assert.equal(alice!.health, PED_MAX_HEALTH);
   assert.equal(alice!.weapon, null);
   assert.equal(alice!.carId, null);
@@ -151,6 +151,19 @@ test('points: kills are a big bonus, suicides cost, wrecking a car earns a littl
   assert.ok(car.wrecked);
   assert.equal(match.scores.get(alice!.id)!.points, POINTS.kill + POINTS.carDestroyed);
   assert.equal(match.scores.get(bob!.id)!.points, POINTS.suicide);
+});
+
+test('points pop up where they were earned, for whoever earned them', () => {
+  const { world, match, peds: [alice, bob] } = setup(2, settings({ mode: 'points' }));
+  Object.assign(bob!, { x: 30.5, y: 20.5 });
+  world.events = [];
+  damagePed(world, bob!, 1000, alice!.id, 'pistol');
+  match.update(world);
+  const popups = world.events.filter((e) => e.type === 'points');
+  assert.deepEqual(
+    popups.map((e) => e.type === 'points' && [e.pedId, e.points, e.x, e.y]),
+    [[alice!.id, POINTS.kill, 30.5, 20.5]],
+  );
 });
 
 test('points: the first to the points limit wins', () => {

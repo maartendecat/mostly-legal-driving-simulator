@@ -38,7 +38,7 @@ const run = (world: World, ticks: number, inputs: ReadonlyMap<number, PlayerInpu
 
 /** A quiet city (no traffic, no pickups) with a player standing on the pavement at (12.5, 4.5). */
 function quiet(seed = 1): { world: World; player: Ped } {
-  const world = createWorld(generateCity(seed), seed);
+  const world = createWorld(generateCity(seed, 6), seed);
   world.cars.clear();
   world.pickups.clear();
   return { world, player: spawnPed(world, 12.5, 4.5) };
@@ -58,7 +58,7 @@ function wantedAt(world: World, player: Ped, level: number): () => void {
 
 /** A full city with a player kept at `level` stars (and alive), for `seconds`. */
 function chase(level: number, seconds: number, seed = 2) {
-  const world = createWorld(generateCity(seed), seed, { traffic: 8, policeCars: 2, cops: 4 });
+  const world = createWorld(generateCity(seed, 6), seed, { traffic: 8, policeCars: 2, cops: 4 });
   run(world, 120);
   const player = spawnPed(world);
   const hold = wantedAt(world, player, level);
@@ -159,7 +159,7 @@ test('six stars: the army comes, with a tank, a troop truck and a helicopter, al
 
 test('a long chase at four stars calls in the army; without the army, it does not', () => {
   for (const [police, expected] of [['on', 6], ['noarmy', 4]] as const) {
-    const world = createWorld(generateCity(1), 1, { police });
+    const world = createWorld(generateCity(1, 6), 1, { police });
     const player = spawnPed(world, 12.5, 4.5);
     reportCrime(world, player.id, 'killCop');
     world.wanted[0]!.heat = WANTED_LEVEL_HEAT[4];

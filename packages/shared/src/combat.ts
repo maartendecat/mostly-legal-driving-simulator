@@ -55,6 +55,8 @@ export type GameEvent =
   | { type: 'wanted'; tick: number; ownerId: number; pedId: number; level: number; x: number; y: number }
   /** A player's car got a new paint job at a spray shop; `lostThem`: the police were after them, and lost them. */
   | { type: 'sprayed'; tick: number; ownerId: number; pedId: number; lostThem: boolean; x: number; y: number }
+  /** A player (`pedId`) scored points, earned at (x, y) (see Match; shown as pop-ups). */
+  | { type: 'points'; tick: number; ownerId: number; pedId: number; points: number; x: number; y: number }
   /** A cop (`copId`) arrested a player (`pedId`). */
   | { type: 'busted'; tick: number; ownerId: number; pedId: number; copId: number; x: number; y: number }
   /** A car blew up; `attackerId` is who gets the credit (null for accidents). */
@@ -207,14 +209,16 @@ export function canPickUpWeapons(world: World, ped: Ped): boolean {
 }
 
 export function collectPickups(world: World): void {
+  // Only players take crates: no need to look at everyone else.
+  const players = [...world.peds.values()].filter((ped) => ped.kind === 'player');
   for (const pickup of world.pickups.values()) {
     if (!isPickupAvailable(world, pickup)) continue;
     if (pickup.kind === 'bribe') {
-      collectBribe(world, pickup);
+      collectBribe(players, world, pickup);
       continue;
     }
     const weapon = WEAPONS[pickup.weapon!];
-    for (const ped of world.peds.values()) {
+    for (const ped of players) {
       if (ped.carId !== null || isDead(ped) || Math.hypot(ped.x - pickup.x, ped.y - pickup.y) > PICKUP_RADIUS) continue;
       if (!canPickUpWeapons(world, ped)) continue;
       const ammo = ped.ammo[pickup.weapon!] ?? 0;
@@ -228,9 +232,9 @@ export function collectPickups(world: World): void {
 }
 
 /** A cop bribe is only taken by a player the police are after (so it's there when it's needed). */
-function collectBribe(world: World, pickup: Pickup): void {
-  for (const ped of world.peds.values()) {
-    if (ped.kind !== 'player' || ped.wanted === 0 || ped.carId !== null || isDead(ped)) continue;
+function collectBribe(players: readonly Ped[], world: World, pickup: Pickup): void {
+  for (const ped of players) {
+    if (ped.wanted === 0 || ped.carId !== null || isDead(ped)) continue;
     if (Math.hypot(ped.x - pickup.x, ped.y - pickup.y) > PICKUP_RADIUS) continue;
     bribePolice(world, ped);
     pickup.availableAt = world.tick + BRIBE_RESPAWN_TICKS;

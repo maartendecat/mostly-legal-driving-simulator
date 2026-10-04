@@ -31,6 +31,7 @@ import { KillFeed } from './ui/KillFeed';
 import { NameTags, type NameTag } from './ui/NameTags';
 import { PlayerArrows, type PlayerArrow } from './ui/PlayerArrows';
 import { Scoreboard } from './ui/Scoreboard';
+import { PointPopups } from './ui/PointPopups';
 import { Toast } from './ui/Toast';
 import { WantedStars } from './ui/WantedStars';
 
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
   let lastIt: number | null = null;
   const toast = new Toast(document.getElementById('toast')!);
   const wantedStars = new WantedStars(document.getElementById('stars')!);
+  const popups = new PointPopups(document.getElementById('popups')!);
   let blockedPickupId: number | null = null;
 
   // Handy for debugging from the browser console; stripped from production builds.
@@ -101,6 +103,7 @@ async function main(): Promise<void> {
     lastIt = it;
     for (const event of events) {
       if (event.type === 'gangAngry' && event.pedId === session.myPedId) toast.show(`${gangName(event.gang)} are after you!`);
+      if (event.type === 'points' && event.pedId === session.myPedId) popups.add(event.points, event.x, event.y);
       if (event.type === 'sprayed' && event.pedId === session.myPedId) toast.show(event.lostThem ? 'Fresh paint: the police lost you!' : 'Fresh paint!');
       if (event.type === 'wanted' && event.pedId === session.myPedId) toast.show(WANTED_TOASTS[event.level] ?? `Wanted: ${stars(event.level)}`);
       if (event.type === 'busted' && session.players.some((p) => p.pedId === event.pedId)) killFeed.addBusted(session, event.pedId);
@@ -112,6 +115,7 @@ async function main(): Promise<void> {
     updateArrows(arrows, session, others, transforms, renderer);
 
     if (frameDt > 0) fps += (1 / frameDt - fps) * 0.05;
+    popups.update(frameDt, (x, y, z) => renderer.projectToScreen(x, y, z));
     hud.textContent = hudText(session, fps, pack);
     wantedStars.update(session.myPedId === null ? 0 : (session.world.peds.get(session.myPedId)?.wanted ?? 0), now);
     requestAnimationFrame(frame);
@@ -311,7 +315,8 @@ class WastedScreen {
     this.title.textContent = busted ? 'BUSTED' : 'WASTED';
     if (respawnAt !== null) {
       const seconds = Math.max(1, Math.ceil((respawnAt - session.world.tick) / TICK_RATE));
-      this.countdown.textContent = `Back in ${seconds}...`;
+      // (Co-op, out of lives: not coming back until the next match.)
+      this.countdown.textContent = seconds > 3600 ? 'Out of lives: watching the others' : `Back in ${seconds}...`;
     }
   }
 }

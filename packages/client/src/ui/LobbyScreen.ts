@@ -4,7 +4,7 @@ import { Lobby } from '../session/Lobby';
 
 const NAME_STORAGE_KEY = 'playerName';
 
-const MODE_NAMES: Record<MatchMode, string> = { frag: 'Frag', points: 'Points', tag: 'Tag' };
+const MODE_NAMES: Record<MatchMode, string> = { frag: 'Frag', points: 'Points', tag: 'Tag', coop: 'Against the police' };
 const POLICE_NOTES: Record<PoliceMode, string> = { on: '', noarmy: ' · no army', off: ' · no police' };
 
 export interface LobbyScreenOptions {
@@ -28,6 +28,12 @@ export function showLobbyScreen({ serverUrl, lagMs, playOffline }: LobbyScreenOp
   const roomNameInput = $<HTMLInputElement>('lobby-room-name');
   const modeSelect = $<HTMLSelectElement>('lobby-mode');
   const policeSelect = $<HTMLSelectElement>('lobby-police');
+  // Together against the police: they're always on, army and all.
+  modeSelect.addEventListener('change', () => {
+    const coop = modeSelect.value === 'coop';
+    policeSelect.disabled = coop;
+    if (coop) policeSelect.value = 'on';
+  });
   const timeSelect = $<HTMLSelectElement>('lobby-time');
   const createButton = $<HTMLButtonElement>('lobby-create-button');
   const offlineButton = $<HTMLButtonElement>('lobby-offline');

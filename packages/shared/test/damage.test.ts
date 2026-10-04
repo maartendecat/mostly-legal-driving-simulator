@@ -32,7 +32,7 @@ const LANE_X = 2.5;
 const NORTH = Math.PI / 2;
 
 function emptyWorld(): World {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   world.cars.clear();
   world.pickups.clear();
   return world;

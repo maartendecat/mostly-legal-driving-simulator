@@ -44,7 +44,7 @@ function turfStretch(map: BlockMap, gang: number): { x: number; y: number } {
 
 /** A quiet city (no cars or pickups) with one gang member, and a player 4 blocks east of them. */
 function standoff(): { world: World; member: Ped; player: Ped } {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   world.cars.clear();
   world.pickups.clear();
   const at = turfStretch(world.map, 1);
@@ -54,7 +54,7 @@ function standoff(): { world: World; member: Ped; player: Ped } {
 }
 
 test('each gang has its own turf: a corner of the city, with neutral ground and roads in between', () => {
-  const map = generateCity(1);
+  const map = generateCity(1, 6);
   const cells = new Map<number, number>();
   for (let i = 0; i < map.territory.length; i++) {
     const gang = map.territory[i]!;
@@ -63,11 +63,11 @@ test('each gang has its own turf: a corner of the city, with neutral ground and 
   }
   for (let gang = 1; gang <= GANGS.length; gang++) assert.ok((cells.get(gang) ?? 0) > 200, `gang ${gang} has turf`);
   assert.ok(cells.get(0)! > map.territory.length / 2, 'most of the city is neutral');
-  assert.deepEqual(generateCity(1).territory, map.territory);
+  assert.deepEqual(generateCity(1, 6).territory, map.territory);
 });
 
 test('the city keeps its gang members on their turf, armed, and its cops and civilians around', () => {
-  const world = createWorld(generateCity(3), 3, { traffic: 8, pedestrians: 20, gangMembers: 5, cops: 4 });
+  const world = createWorld(generateCity(3, 6), 3, { traffic: 8, pedestrians: 20, gangMembers: 5, cops: 4 });
   let samples = 0;
   let onTurf = 0;
   run(world, secondsToTicks(180), () => {
@@ -162,7 +162,7 @@ test('gang members and cops are worth more points than ordinary pedestrians', ()
 });
 
 test('gangs replay identically, fights included', () => {
-  const world = createWorld(generateCity(5), 5, { traffic: 8, pedestrians: 10, gangMembers: 4, cops: 2 });
+  const world = createWorld(generateCity(5, 6), 5, { traffic: 8, pedestrians: 10, gangMembers: 4, cops: 2 });
   run(world, 400);
   const player = spawnPed(world, ...(() => {
     const member = living(world, 'gangster')[0]!;

@@ -1,4 +1,5 @@
 import { fireWeapon } from './combat';
+import { carsNear } from './grid';
 import { isDead } from './damage';
 import { bust, canArrest, nearestWanted, policeMayShoot } from './police';
 import { GANGS, GANG_NOTICE_RANGE, GANG_SHOOT_RANGE, expireGrudges, turfAt } from './gangs';
@@ -415,7 +416,8 @@ function noticeDanger(world: World, ped: Ped, ai: PedestrianState): void {
     if (fearless) break;
     if (near(projectile.x, projectile.y)) source = { x: projectile.x, y: projectile.y };
   }
-  for (const car of world.cars.values()) {
+  for (const car of carsNear(world, ped.x, ped.y, DANGER_CAR_DISTANCE + 1)) {
+    if (Math.abs(car.x - ped.x) > DANGER_CAR_DISTANCE + 1 || Math.abs(car.y - ped.y) > DANGER_CAR_DISTANCE + 1) continue;
     const speed = carSpeed(car);
     if (speed < DANGER_CAR_SPEED) continue;
     // Only a car actually heading at them: ahead of it, close, and within about a car's width of

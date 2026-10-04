@@ -1,5 +1,6 @@
 import { isDead } from './damage';
 import { randomPick } from './math';
+import { clearHeat } from './police';
 import { CAR_COLORS, carSpeed, type World } from './world';
 import { secondsToTicks } from './time';
 
@@ -32,9 +33,7 @@ export function stepSprayShops(world: World): void {
     world.sprayProgress[i] = -SPRAY_TICKS * 2; // not again right away
     car.color = randomPick(world, CAR_COLORS.filter((c) => c !== car.color));
     car.paintJobs++;
-    const lostThem = driver.wanted > 0;
-    world.wanted = world.wanted.filter((w) => w.pedId !== driver.id);
-    driver.wanted = 0;
+    const lostThem = clearHeat(world, driver);
     world.events.push({ type: 'sprayed', tick: world.tick, ownerId: driver.id, pedId: driver.id, lostThem, x: car.x, y: car.y });
   });
 }

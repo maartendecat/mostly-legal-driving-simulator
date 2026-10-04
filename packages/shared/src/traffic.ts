@@ -2,6 +2,7 @@ import { NO_INPUT, type PlayerInput } from './input';
 import { Block, DIRECTIONS, Lane, laneAt, type BlockMap } from './map';
 import { nextRandom, randomPick, wrapAngle } from './math';
 import { fireTruckInput, isFireTruck } from './fire';
+import { carsNear } from './grid';
 import { pursuitInput } from './police';
 import { secondsToTicks } from './time';
 import { CAR_MODELS } from './vehicles';
@@ -345,14 +346,16 @@ function blockedAhead(world: World, car: Car, forward: number, ignoreId: number 
   const cos = Math.cos(car.heading);
   const sin = Math.sin(car.heading);
   const reach = m.length / 2 + 1.2 + Math.max(forward, 0) * 0.35;
+  const far = reach + 1.5;
   const inFront = (x: number, y: number, radius: number) => {
     const dx = x - car.x;
     const dy = y - car.y;
+    if (Math.abs(dx) > far || Math.abs(dy) > far) return false;
     const along = dx * cos + dy * sin;
     const across = -dx * sin + dy * cos;
     return along > 0 && along < reach + radius && Math.abs(across) < m.width / 2 + radius;
   };
-  for (const other of world.cars.values()) {
+  for (const other of carsNear(world, car.x, car.y, far)) {
     if (other !== car && other.id !== ignoreId && inFront(other.x, other.y, CAR_MODELS[other.model].width / 2 + 0.1)) return { kind: 'car', car: other };
   }
   for (const ped of world.peds.values()) {

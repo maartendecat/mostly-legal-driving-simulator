@@ -47,7 +47,7 @@ const countShots = (world: World, ped: Ped) => {
 
 /** A quiet city (no cars, no pickups) with a player on the pavement row at y = 4.5. */
 function street(options: { police?: 'on' | 'noarmy' | 'off' } = {}): { world: World; player: Ped } {
-  const world = createWorld(generateCity(1), 1, options);
+  const world = createWorld(generateCity(1, 6), 1, options);
   world.cars.clear();
   world.pickups.clear();
   for (let x = 4; x <= 12; x++) assert.equal(world.map.kinds[4 * world.map.width + x], Block.Pavement);
@@ -149,12 +149,12 @@ test('without the army the stars stop at five; with it, they go to six; police o
 });
 
 test('police off: no cops, no police cars, no bribes', () => {
-  const world = createWorld(generateCity(2), 2, { traffic: 6, cops: 4, policeCars: 2, police: 'off' });
+  const world = createWorld(generateCity(2, 6), 2, { traffic: 6, cops: 4, policeCars: 2, police: 'off' });
   run(world, 300);
   assert.equal([...world.peds.values()].filter((p) => p.kind === 'cop').length, 0);
   assert.equal([...world.cars.values()].filter((c) => c.police).length, 0);
   assert.equal([...world.pickups.values()].filter((p) => p.kind === 'bribe').length, 0);
-  assert.ok(createWorld(generateCity(2), 2).map.bribeSpawns.length > 0, 'with police, there are bribes');
+  assert.ok(createWorld(generateCity(2, 6), 2).map.bribeSpawns.length > 0, 'with police, there are bribes');
 });
 
 test('one star: cops only try to arrest; two: they shoot back at a shooter; three: on sight', () => {
@@ -214,7 +214,7 @@ test('above three stars there are no more arrests', () => {
 });
 
 test('from two stars police cars from all over the city give chase, and reinforcements come', () => {
-  const world = createWorld(generateCity(3), 3, { traffic: 4, policeCars: 2 });
+  const world = createWorld(generateCity(3, 6), 3, { traffic: 4, policeCars: 2 });
   run(world, 300);
   const player = spawnPed(world, 40.5, 40.5);
   const far = [...world.cars.values()].filter((c) => c.police && c.traffic && Math.hypot(c.x - player.x, c.y - player.y) > 20);

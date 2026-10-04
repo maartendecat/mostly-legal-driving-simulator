@@ -19,6 +19,7 @@ import {
   spawnPed,
   spawnPedestrian,
   spawnPickup,
+  spawnProjectile,
   stepWorld,
   type Ped,
   type World,
@@ -35,7 +36,7 @@ const kindUnder = (world: World, p: Ped) => world.map.kinds[Math.floor(p.y) * wo
 
 /** A quiet city with one pedestrian on the pavement south of the first block (row y=4). */
 function onePedestrian(): { world: World; ped: Ped } {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   world.cars.clear();
   world.pickups.clear();
   assert.equal(world.map.kinds[4 * world.map.width + 8], Block.Pavement);
@@ -87,7 +88,7 @@ test('a car speeding at a pedestrian makes them jump out of its way', () => {
 });
 
 test('pedestrians can be shot; bodies stay for a while, then make way for new pedestrians out of sight', () => {
-  const world = createWorld(generateCity(2), 2, { pedestrians: 12 });
+  const world = createWorld(generateCity(2, 6), 2, { pedestrians: 12 });
   const player = spawnPed(world, 40.5, 40.5);
   run(world, 30);
   assert.equal(pedestrians(world).length, 12);
@@ -127,11 +128,11 @@ test('pedestrians are not players: no weapons, no frags, a few points', () => {
   match.addPlayer(world, player.id);
   world.events = [{ type: 'death', tick: 0, ownerId: player.id, pedId: ped.id, killerId: player.id, cause: 'pistol', x: 0, y: 0 }];
   match.update(world);
-  assert.deepEqual(match.scores.get(player.id), { frags: 0, deaths: 0, points: POINTS.pedestrian, itTicks: 0 });
+  assert.deepEqual(match.scores.get(player.id), { frags: 0, deaths: 0, points: POINTS.pedestrian, itTicks: 0, lives: 3 });
 });
 
 test('a full city: traffic and pedestrians get along', () => {
-  const world = createWorld(generateCity(3), 3, { traffic: 16, pedestrians: 40 });
+  const world = createWorld(generateCity(3, 6), 3, { traffic: 16, pedestrians: 40 });
   let runOver = 0;
   run(world, secondsToTicks(120), () => {
     for (const e of world.events) if (e.type === 'death') runOver++;
@@ -141,7 +142,7 @@ test('a full city: traffic and pedestrians get along', () => {
 });
 
 test('pedestrians replay identically, so prediction agrees with the server', () => {
-  const world = createWorld(generateCity(5), 5, { traffic: 8, pedestrians: 20 });
+  const world = createWorld(generateCity(5, 6), 5, { traffic: 8, pedestrians: 20 });
   run(world, 200);
   const copy = cloneWorld(world);
   run(world, 300);
@@ -238,14 +239,18 @@ test('gang members do not care about bodies', () => {
 test('seeing someone killed, pedestrians run, and are not startled by the body again afterwards', () => {
   const { world, ped } = onePedestrian();
   const victim = spawnPedestrian(world, 10, 4);
-  damagePed(world, victim, 1000, null, 'runOver');
-  stepWorld(world, new Map());
+  victim.ai!.waitTicks = 600; // (standing still, so the shot can't miss)
+  victim.health = 1;
+  // Shot dead during a step, as it happens in the game (each step starts with no events).
+  spawnProjectile(world, 'pistol', 9999, victim.x, victim.y - 0.6, Math.PI / 2);
+  for (let i = 0; i < 10 && victim.respawnAt === null; i++) stepWorld(world, new Map());
+  assert.notEqual(victim.respawnAt, null, 'dead');
   assert.ok(ped.ai!.panicTicks > 0);
   assert.deepEqual(ped.ai!.seenBodies, [victim.id]);
 });
 
 test('bodies and reactions to them replay identically', () => {
-  const world = createWorld(generateCity(5), 5, { traffic: 8, pedestrians: 30, cops: 4 });
+  const world = createWorld(generateCity(5, 6), 5, { traffic: 8, pedestrians: 30, cops: 4 });
   run(world, 300);
   for (const p of [...world.peds.values()].slice(0, 6)) damagePed(world, p, 1000, null, 'runOver');
   const copy = cloneWorld(world);

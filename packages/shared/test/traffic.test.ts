@@ -36,7 +36,7 @@ const run = (world: World, ticks: number, each?: () => void) => {
 
 /** A city with no parked cars, and one traffic car on the eastbound lane of a long straight road. */
 function oneCar(): { world: World; car: Car } {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   world.cars.clear();
   world.pickups.clear();
   // Row y=1 is the eastbound lane of the southernmost road; x=5 is just past the first intersection.
@@ -46,7 +46,7 @@ function oneCar(): { world: World; car: Car } {
 }
 
 test('the city has right-hand traffic lanes; parked cars stand on the kerb beside one, facing its way', () => {
-  const map = generateCity(4);
+  const map = generateCity(4, 6);
   for (const spawn of map.carSpawns) {
     const dir = DIRECTIONS.findIndex((d) => Math.abs(wrapAngle(d.heading - spawn.heading)) < 1e-9);
     const d = DIRECTIONS[dir]!;
@@ -166,7 +166,7 @@ test('a traffic car blown up by a rocket takes its driver with it: no time to ge
 });
 
 test('traffic is kept at the target, appearing out of sight of players, and wrecks get replaced', () => {
-  const world = createWorld(generateCity(2), 2, { traffic: 10 });
+  const world = createWorld(generateCity(2, 6), 2, { traffic: 10 });
   const player = spawnPed(world, 40.5, 40.5);
   // Check where each traffic car is on the tick it appears (after that it may well drive closer).
   const seen = new Set<number>();
@@ -186,7 +186,7 @@ test('traffic is kept at the target, appearing out of sight of players, and wrec
 });
 
 test('a busy city keeps flowing: no gridlock, nobody inside walls', () => {
-  const world = createWorld(generateCity(3), 3, { traffic: 16 });
+  const world = createWorld(generateCity(3, 6), 3, { traffic: 16 });
   run(world, secondsToTicks(90));
   const traffic = trafficCars(world);
   assert.equal(traffic.length, 16);
@@ -196,7 +196,7 @@ test('a busy city keeps flowing: no gridlock, nobody inside walls', () => {
 });
 
 test('traffic replays identically, so prediction agrees with the server', () => {
-  const world = createWorld(generateCity(5), 5, { traffic: 12 });
+  const world = createWorld(generateCity(5, 6), 5, { traffic: 12 });
   run(world, 300);
   const copy = cloneWorld(world);
   run(world, 300);

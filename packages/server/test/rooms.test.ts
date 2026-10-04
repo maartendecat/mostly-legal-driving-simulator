@@ -94,6 +94,23 @@ test('a room can be created without police: no cops, no police cars, and the lob
     lobby.close();
   }));
 
+test('a co-op room is always against the police, whatever the police setting asked for', () =>
+  withServer({ city: { police: 'on' } }, async (server) => {
+    const lobby = new Client(server.port);
+    await lobby.next('rooms');
+    const host = new Client(server.port);
+    await host.send({ type: 'createRoom', name: 'Alice', room: { name: 'Team', mode: 'coop', police: 'off' } });
+    const welcome = await host.next('welcome');
+    const first = await host.next('snapshot');
+    assert.equal(first.match.mode, 'coop');
+    const { rooms } = await lobby.next('rooms', (m) => m.rooms.length === 2);
+    assert.equal(rooms.find((r) => r.id === welcome.roomId)?.police, 'on');
+    const later = await host.next('snapshot', (s) => s.tick > 3);
+    assert.ok(later.peds.find((p) => p.id === welcome.pedId)!.wanted >= 1, 'wanted from the start');
+    host.close();
+    lobby.close();
+  }));
+
 test('rooms are separate games: players only see the people in their own room', () =>
   withServer({}, async (server) => {
     const a = new Client(server.port);

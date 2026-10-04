@@ -10,6 +10,7 @@ import { CAR_MODELS, type CarModel, type CarModelId } from './vehicles';
 import type { Grudge } from './gangs';
 import type { Roadblock } from './escalation';
 import { stepFire } from './fire';
+import { buildCarGrid, carsNear, clearCarGrid } from './grid';
 import { stepSprayShops } from './sprayshop';
 import { stepHelicopters, type Helicopter } from './helicopter';
 import { crewOf, reportCrime, stepPolice, type PoliceMode, type WantedRecord } from './police';
@@ -43,6 +44,10 @@ const CAR_CRASH_DAMAGE = 5;
 const HIJACKED_COP_STUN_TICKS = secondsToTicks(1);
 /** Damage per tick to a car a tank is pushing against (about 90 per second). */
 const TANK_CRUSH_DAMAGE = 1.5;
+/** The longest vehicle (the fire truck). */
+const MAX_CAR_LENGTH = Math.max(...Object.values(CAR_MODELS).map((m) => m.length));
+/** A ped further than this from a car's middle (along x or y) can't be touching it (the longest is 1.8). */
+const PUSH_REACH = 1.2;
 /** Hitting a police car faster than this (blocks/s) gets the police after you. */
 const POLICE_BUMP_SPEED = 1;
 /** A car hitting a ped faster than this hurts them; at about 6 blocks/s it's fatal. */
@@ -168,6 +173,10 @@ export interface World {
   policeMode: PoliceMode;
   /** Players the police are after, until when (see police.ts). */
   wanted: WantedRecord[];
+  /** The least heat every player has (co-op: the police pressure, rising; see Match). */
+  heatFloor: number;
+  /** Whether players can hurt each other (not in co-op). */
+  friendlyFire: boolean;
   /** Roadblocks the police have set up (see escalation.ts). */
   roadblocks: Roadblock[];
   /** The army's helicopters (see helicopter.ts). */
@@ -215,6 +224,8 @@ export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians 
     policeMode: police,
     fireTruckTarget: fireTrucks,
     wanted: [],
+    heatFloor: 0,
+    friendlyFire: true,
     roadblocks: [],
     helicopters: new Map(),
     sprayProgress: map.sprayShops.map(() => 0),
@@ -346,6 +357,7 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
     updateWeapons(world, ped, input, switchDirection);
   }
 
+  buildCarGrid(world); // (where the cars are, for traffic looking ahead)
   for (const car of world.cars.values()) {
     const input = car.wrecked
       ? NO_INPUT
@@ -361,6 +373,7 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
   }
 
   resolveCarCollisions(world);
+  buildCarGrid(world); // (where the cars ended up, for the rest of the tick)
 
   for (const ped of world.peds.values()) {
     const car = ped.carId === null ? undefined : world.cars.get(ped.carId);
@@ -369,7 +382,7 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
       ped.y = car.y;
       ped.heading = car.heading;
     } else if (!isDead(ped)) {
-      for (const other of world.cars.values()) pushPedOutOfCar(world, ped, other);
+      for (const other of carsNear(world, ped.x, ped.y, PUSH_REACH)) pushPedOutOfCar(world, ped, other);
     }
   }
 
@@ -383,6 +396,7 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
   updateLifecycle(world);
   maintainTraffic(world);
   maintainPedestrians(world);
+  clearCarGrid(world); // (outside a step, lookups see every car as it is)
 
   world.tick++;
 }
@@ -471,6 +485,8 @@ export function carExitPoint(map: BlockMap, car: Car, side: 1 | -1 = 1): { x: nu
 
 /** Keeps peds out of cars, and hurts them if the car hits them fast enough (running them over). */
 function pushPedOutOfCar(world: World, ped: Ped, car: Car): void {
+  // (Far apart: nothing to do. Cheap, and most pairs are.)
+  if (Math.abs(ped.x - car.x) > PUSH_REACH || Math.abs(ped.y - car.y) > PUSH_REACH) return;
   const m = CAR_MODELS[car.model];
   const cos = Math.cos(car.heading);
   const sin = Math.sin(car.heading);
@@ -599,9 +615,11 @@ export function carCollides(map: BlockMap, model: CarModel, x: number, y: number
 }
 
 function resolveCarCollisions(world: World): void {
-  const cars = [...world.cars.values()];
+  // Sorted along x, each car only needs checking against the next few: two cars further apart than
+  // the longest vehicle can't touch.
+  const cars = [...world.cars.values()].sort((a, b) => a.x - b.x || a.id - b.id);
   for (let i = 0; i < cars.length; i++) {
-    for (let j = i + 1; j < cars.length; j++) collideCars(world, cars[i]!, cars[j]!);
+    for (let j = i + 1; j < cars.length && cars[j]!.x - cars[i]!.x <= MAX_CAR_LENGTH; j++) collideCars(world, cars[i]!, cars[j]!);
   }
 }
 

@@ -34,9 +34,9 @@ You have 100 health. Bullets, rocket blasts and being run over hurt; at zero you
 respawn 3 seconds later, unarmed. Cars take damage from gunfire and hard crashes, start smoking,
 then burn and explode (get out in time!) and leave a wreck that's replaced after 30 seconds.
 
-The city has traffic and pedestrians (per room, by default 16 cars, 40 people, 6 members of each
-of three gangs and 6 cops; `TRAFFIC=30 PEDESTRIANS=60 GANG_MEMBERS=4 COPS=8 npm run server`, or `0`
-for none). Traffic drives on the right, turns at
+The city is 12 × 12 blocks. It has traffic and pedestrians (per room, by default 40 cars, 100
+people, 15 members of each of three gangs, 15 cops and 5 police cars; `TRAFFIC=60 PEDESTRIANS=150
+GANG_MEMBERS=10 COPS=20 npm run server`, or `0` for none). Traffic drives on the right, turns at
 random at intersections, takes turns crossing them, stops for people and cars and drives around
 parked ones. Parked cars stand on the kerb. Jump into a traffic car and it's yours: its driver
 is pulled out and runs for it (they also bail out of burning cars). Pedestrians
@@ -60,7 +60,7 @@ Killing other players is no crime. Rooms can have the police with or without the
 and a fire truck comes (lights flashing) to put the fire out with its water cannon, then drives off
 again (`FIRE_TRUCKS=2`: how many can be out at once).
 
-Online games are matches in one of GTA2's three modes:
+Online games are matches in one of GTA2's three modes, or our own co-op mode:
 
 - **Frag**: +1 for every kill, −1 for killing yourself. First to 10 frags wins.
 - **Points**: 1,000 points per kill, −500 for killing yourself, 100 for every car you wreck,
@@ -68,6 +68,11 @@ Online games are matches in one of GTA2's three modes:
   First to 10,000 wins.
 - **Tag**: one player is "it" and can't pick up weapons, can't see arrows, and their car takes
   double damage. Kill "it" to become "it". Time as "it" (alive) counts: first to 2 minutes wins.
+- **Together against the police** (co-op): everyone is wanted from the start and the police keep
+  coming harder, from one star to the army after four minutes. You can't hurt each other. Three
+  lives each; when everyone's out, the time you held out is your score (beat the room's best).
+
+Points pop up where you earn them, as in GTA2.
 
 If nobody reaches the limit, whoever leads when time runs out wins. Then there's a 10-second break
 showing the scores and a new match starts. Hold Tab for the scoreboard. Other players show up as
@@ -76,7 +81,7 @@ the lobby pick their own mode and time limit; the server's permanent room is con
 environment variables:
 
 ```bash
-MODE=points npm run server          # frag (default), points, tag, or rotate (all three in turn)
+MODE=points npm run server          # frag (default), points, tag, coop, or rotate (frag, points, tag in turn)
 MODE=tag SCORE_LIMIT=90 TIME_LIMIT=5 npm run server   # 90 s as "it" to win; 5-minute matches
 ```
 
@@ -224,11 +229,11 @@ tanks and helicopters, ✅ spray shops, as planned in [docs/POLICE.md](docs/POLI
 
 ### Later
 
-- New game mode: everyone together against the police, holding out as long as possible (TODO,
-  after the full police; see [docs/POLICE.md §10](docs/POLICE.md#10-later-a-co-op-mode-against-the-police))
+- ✅ New game mode: everyone together against the police, holding out as long as possible
 
 - ✅ Walking animation for people, like GTA2's (feet stepping out, body swaying)
 - A livelier city: ✅ traffic, ✅ pedestrians (more in Part A above)
-- Points popping up where they're earned, like GTA2 (a car exploding, damage done, kills)
+- ✅ Points popping up where they're earned, like GTA2
+- ✅ A city twice as big each way (12 × 12 blocks)
 - In-browser map editor (started, then postponed; unfinished work in `git stash`)
 - Classic pack: load your own GTA2 files in the browser

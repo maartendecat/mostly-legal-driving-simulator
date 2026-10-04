@@ -31,7 +31,7 @@ const trucks = (world: World) => [...world.cars.values()].filter(isFireTruck);
 /** A city with a player watching a parked car that's about to blow up. */
 function fire(options: { fireTrucks?: number; seed?: number } = {}): { world: World; wreck: Car } {
   const seed = options.seed ?? 3;
-  const world = createWorld(generateCity(seed), seed, { fireTrucks: options.fireTrucks ?? 2 });
+  const world = createWorld(generateCity(seed, 6), seed, { fireTrucks: options.fireTrucks ?? 2 });
   const wreck = world.cars.values().next().value!;
   spawnPed(world, wreck.x, wreck.y + 4);
   damageCar(world, wreck, 1000, null);
@@ -76,7 +76,7 @@ test('a fire truck comes from out of sight, lights flashing, puts the fire out, 
 });
 
 test('no more fire trucks out at once than the city has', () => {
-  const world = createWorld(generateCity(4), 4, { fireTrucks: 1 });
+  const world = createWorld(generateCity(4, 6), 4, { fireTrucks: 1 });
   spawnPed(world, 2.5, 2.5);
   const cars = [...world.cars.values()].slice(0, 4);
   for (const car of cars) damageCar(world, car, 1000, null);
@@ -86,7 +86,7 @@ test('no more fire trucks out at once than the city has', () => {
 });
 
 test('fire trucks are only ever sent to fires: never parked, never in the traffic', () => {
-  const world = createWorld(generateCity(2), 2, { traffic: 12, fireTrucks: 2 });
+  const world = createWorld(generateCity(2, 6), 2, { traffic: 12, fireTrucks: 2 });
   run(world, secondsToTicks(30));
   assert.equal(trucks(world).length, 0);
 });
@@ -115,7 +115,7 @@ test('fire brigade missions replay identically', () => {
 });
 
 test('a car that just caught fire is not a fire for the brigade yet: it explodes first', () => {
-  const world = createWorld(generateCity(3), 3, { fireTrucks: 2 });
+  const world = createWorld(generateCity(3, 6), 3, { fireTrucks: 2 });
   spawnPed(world, 2.5, 2.5);
   const car = spawnCar(world, 'sedan', 40.5, 1.5, 0);
   damageCar(world, car, 1000, null);

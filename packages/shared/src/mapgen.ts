@@ -8,16 +8,23 @@ const PERIOD = 12;
 const ROAD = 3;
 const LOT = PERIOD - ROAD - 2;
 const BORDER_HEIGHT = 6;
+/** The city is this many blocks across (each way): 149 × 149 cells. */
+export const CITY_BLOCKS = 12;
+/**
+ * How many of each thing there are, for a 6 × 6-block city (the original size); bigger cities get
+ * more, by area (see scaled): parked cars a little fewer than that, so streets don't clog up.
+ */
 const CAR_COUNT = 28;
 const PED_SPAWN_COUNT = 24;
 const PICKUP_COUNT = 16;
-/** Cop bribes: a few, far apart. */
+/** Cop bribes: a few, far apart... */
 const BRIBE_COUNT = 3;
-/** Spray shops: two, on opposite sides of town if possible. */
+/** ...and spray shops, on opposite sides of town if possible (both doubling, not quadrupling, with a city twice as wide). */
 const SPRAY_SHOP_COUNT = 2;
 /**
- * Gang turf, as city blocks (bx, by) per gang: a 2×2 corner of the city each (north-west,
+ * Gang turf, as city blocks (bx, by) per gang in a 6 × 6 city: a 2 × 2 corner each (north-west,
  * north-east, south-centre); everything else is neutral. Blocks are counted from the south-west.
+ * In bigger cities the same corners, scaled (4 × 4 blocks in a 12 × 12 city).
  */
 const GANG_TURF: [gang: number, bx0: number, by0: number][] = [
   [1, 0, 4],
@@ -32,7 +39,7 @@ const PICKUP_WEAPONS: WeaponId[] = ['pistol', 'pistol', 'pistol', 'machineGun', 
  * contain buildings, parks and plazas. The same seed always produces the same map, so server and
  * clients can agree on a map by sharing only the seed.
  */
-export function generateCity(seed: number, blocks = 6): BlockMap {
+export function generateCity(seed: number, blocks = CITY_BLOCKS): BlockMap {
   const size = blocks * PERIOD + ROAD + 2;
   const map = createMap(size, size);
   const rng = { rngState: seed >>> 0 };
@@ -73,17 +80,19 @@ export function generateCity(seed: number, blocks = 6): BlockMap {
   }
 
   markTurf(map, blocks);
-  map.carSpawns = pickCarSpawns(map, rng);
-  map.pedSpawns = pickPedSpawns(map, rng);
-  map.pickupSpawns = pickPickupSpawns(map, rng);
+  const area = (blocks / 6) ** 2;
+  const width = blocks / 6;
+  map.carSpawns = pickCarSpawns(map, rng, Math.round(CAR_COUNT * area * 0.75));
+  map.pedSpawns = pickPedSpawns(map, rng, Math.round(PED_SPAWN_COUNT * area));
+  map.pickupSpawns = pickPickupSpawns(map, rng, Math.round(PICKUP_COUNT * area));
   // Last, so adding them didn't change the rest of any city.
   map.bribeSpawns = pickSpread(
     pavementCells(map).filter((c) => map.pickupSpawns.every((p) => Math.hypot(p.x - c.x, p.y - c.y) > 4)),
     rng,
-    BRIBE_COUNT,
+    Math.round(BRIBE_COUNT * width),
     20,
   );
-  map.sprayShops = pickSprayShops(map, rng);
+  map.sprayShops = pickSprayShops(map, rng, Math.round(SPRAY_SHOP_COUNT * width));
   return map;
 }
 
@@ -130,7 +139,9 @@ function markTurf(map: BlockMap, blocks: number): void {
       const bx = Math.floor((x - 1) / PERIOD);
       const by = Math.floor((y - 1) / PERIOD);
       if (bx >= blocks || by >= blocks) continue;
-      const turf = GANG_TURF.find(([, x0, y0]) => bx >= x0 && bx < x0 + 2 && by >= y0 && by < y0 + 2);
+      // (Turf is given for a 6 × 6 city; scaled to this one.)
+      const k = blocks / 6;
+      const turf = GANG_TURF.find(([, x0, y0]) => bx >= x0 * k && bx < (x0 + 2) * k && by >= y0 * k && by < (y0 + 2) * k);
       if (turf) map.territory[y * map.width + x] = turf[0];
     }
   }
@@ -140,7 +151,7 @@ function markTurf(map: BlockMap, blocks: number): void {
  * Parked cars stand on the pavement along the right-hand kerb, facing the direction of traffic:
  * easy to find and steal, and out of the way of the traffic driving past.
  */
-function pickCarSpawns(map: BlockMap, rng: { rngState: number }): CarSpawn[] {
+function pickCarSpawns(map: BlockMap, rng: { rngState: number }, count: number): CarSpawn[] {
   const candidates: CarSpawn[] = [];
   for (let y = 1; y < map.height - 1; y++) {
     for (let x = 1; x < map.width - 1; x++) {
@@ -153,22 +164,22 @@ function pickCarSpawns(map: BlockMap, rng: { rngState: number }): CarSpawn[] {
       if (map.kinds[py * map.width + px] === Block.Pavement) candidates.push({ x: px + 0.5, y: py + 0.5, heading: d.heading });
     }
   }
-  return pickSpread(candidates, rng, CAR_COUNT, 3);
+  return pickSpread(candidates, rng, count, 3);
 }
 
-function pickPedSpawns(map: BlockMap, rng: { rngState: number }): Vec2[] {
-  return pickSpread(pavementCells(map), rng, PED_SPAWN_COUNT, 6);
+function pickPedSpawns(map: BlockMap, rng: { rngState: number }, count: number): Vec2[] {
+  return pickSpread(pavementCells(map), rng, count, 6);
 }
 
-function pickPickupSpawns(map: BlockMap, rng: { rngState: number }): PickupSpawn[] {
-  return pickSpread(pavementCells(map), rng, PICKUP_COUNT, 8).map((p) => ({ ...p, weapon: randomPick(rng, PICKUP_WEAPONS) }));
+function pickPickupSpawns(map: BlockMap, rng: { rngState: number }, count: number): PickupSpawn[] {
+  return pickSpread(pavementCells(map), rng, count, 8).map((p) => ({ ...p, weapon: randomPick(rng, PICKUP_WEAPONS) }));
 }
 
 /**
  * Spray shops: a bay on the pavement with a building behind it (the garage) and the road in front,
  * along a straight stretch (not a corner). Picked last, so they didn't change any city.
  */
-function pickSprayShops(map: BlockMap, rng: { rngState: number }): SprayShop[] {
+function pickSprayShops(map: BlockMap, rng: { rngState: number }, count: number): SprayShop[] {
   const kind = (x: number, y: number) => (x < 0 || y < 0 || x >= map.width || y >= map.height ? Block.Building : map.kinds[y * map.width + x]);
   const candidates: (SprayShop & { x: number; y: number })[] = [];
   for (const cell of pavementCells(map)) {
@@ -185,7 +196,7 @@ function pickSprayShops(map: BlockMap, rng: { rngState: number }): SprayShop[] {
     }
   }
   const away = candidates.filter((c) => map.pickupSpawns.every((p) => Math.hypot(p.x - c.x, p.y - c.y) > 3));
-  return pickSpread(away, rng, SPRAY_SHOP_COUNT, 30).map(({ x, y, dir }) => ({ x, y, dir }));
+  return pickSpread(away, rng, count, 30).map(({ x, y, dir }) => ({ x, y, dir }));
 }
 
 function pavementCells(map: BlockMap): Vec2[] {

@@ -39,7 +39,7 @@ const cops = (world: World) => [...world.peds.values()].filter((p) => p.kind ===
 
 /** A quiet city with a police car (driving, crewed) on the eastbound lane of the first road (y=1.5). */
 function policeCar(): { world: World; police: Car } {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   world.cars.clear();
   world.pickups.clear();
   const police = spawnCar(world, 'sedan', 20.5, 1.5, 0);
@@ -163,7 +163,7 @@ test('cops cannot arrest someone driving off; once the car stops, they can', () 
 });
 
 test('police cars nearby chase a wanted player along the roads, pull up, and the cops get out for the arrest', () => {
-  const world = createWorld(generateCity(3), 3, { traffic: 8, policeCars: 2 });
+  const world = createWorld(generateCity(3, 6), 3, { traffic: 8, policeCars: 2 });
   run(world, 600);
   const police = [...world.cars.values()].find((c) => c.police && c.traffic)!;
   const spot = world.map.pedSpawns.find((s) => Math.hypot(s.x - police.x, s.y - police.y) > 12 && Math.hypot(s.x - police.x, s.y - police.y) < 19)!;
@@ -239,7 +239,7 @@ test('the busted are taken away, not left lying there: nobody stares at them', (
 });
 
 test('the city keeps its police cars on the road, besides the other traffic', () => {
-  const world = createWorld(generateCity(2), 2, { traffic: 6, policeCars: 2 });
+  const world = createWorld(generateCity(2, 6), 2, { traffic: 6, policeCars: 2 });
   run(world, 300);
   const traffic = [...world.cars.values()].filter((c) => c.traffic);
   assert.equal(traffic.filter((c) => c.police).length, 2);
@@ -248,7 +248,7 @@ test('the city keeps its police cars on the road, besides the other traffic', ()
 });
 
 test('a way along the roads leads from one place to another', () => {
-  const map = generateCity(1);
+  const map = generateCity(1, 6);
   const path = roadPath(map, 2.5, 2.5, 60.5, 40.5);
   assert.ok(path.length > 10);
   const last = path.at(-1)!;
@@ -256,7 +256,7 @@ test('a way along the roads leads from one place to another', () => {
 });
 
 test('chases replay identically', () => {
-  const world = createWorld(generateCity(4), 4, { traffic: 8, pedestrians: 10, cops: 4, policeCars: 2 });
+  const world = createWorld(generateCity(4, 6), 4, { traffic: 8, pedestrians: 10, cops: 4, policeCars: 2 });
   run(world, 300);
   const player = spawnPed(world, 40.5, 4.5);
   reportCrime(world, player.id, 'assaultPolice');

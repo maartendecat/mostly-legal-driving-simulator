@@ -177,7 +177,8 @@ export class GameServer {
       seed: randomBytes(4).readUInt32LE(0),
       match: { ...DEFAULT_MATCH_SETTINGS, modes: [settings.mode], scoreLimits, timeLimitTicks },
       permanent: false,
-      city: { ...this.options.city, ...(settings.police ? { police: settings.police } : {}) },
+      // (Co-op is against the police: they're always on, army and all.)
+      city: { ...this.options.city, ...(settings.mode === 'coop' ? { police: 'on' as const } : settings.police ? { police: settings.police } : {}) },
     });
   }
 

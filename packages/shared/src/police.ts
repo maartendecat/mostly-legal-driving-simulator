@@ -169,14 +169,45 @@ export function crewOf(car: Car): 'cop' | 'swat' | 'soldier' {
   return car.model === 'swatVan' ? 'swat' : car.model === 'armyTruck' || car.model === 'tank' ? 'soldier' : 'cop';
 }
 
-/** A cop bribe: one star off at once. */
+/** A cop bribe: one star off at once (not below the heat floor, though). */
 export function bribePolice(world: World, ped: Ped): void {
   const record = world.wanted.find((w) => w.pedId === ped.id);
   if (!record) return;
   const level = wantedLevel(record.heat);
-  record.heat = level > 1 ? WANTED_LEVEL_HEAT[level - 1]! : 0;
+  record.heat = Math.max(level > 1 ? WANTED_LEVEL_HEAT[level - 1]! : 0, world.heatFloor);
   ped.wanted = wantedLevel(record.heat);
   if (record.heat === 0) world.wanted = world.wanted.filter((w) => w !== record);
+}
+
+/** All of a player's heat gone (a spray shop), down to the floor. Returns whether they lost any stars. */
+export function clearHeat(world: World, ped: Ped): boolean {
+  const before = ped.wanted;
+  if (world.heatFloor > 0) {
+    const record = world.wanted.find((w) => w.pedId === ped.id);
+    if (record) record.heat = Math.min(record.heat, world.heatFloor);
+  } else {
+    world.wanted = world.wanted.filter((w) => w.pedId !== ped.id);
+  }
+  ped.wanted = wantedLevel(world.wanted.find((w) => w.pedId === ped.id)?.heat ?? 0);
+  return ped.wanted < before;
+}
+
+/**
+ * Makes sure a player has at least `heat` (the co-op pressure), announcing a new star.
+ */
+function raiseHeat(world: World, ped: Ped, heat: number): void {
+  let record = world.wanted.find((w) => w.pedId === ped.id);
+  if (!record) {
+    record = { pedId: ped.id, heat: 0, unseenTicks: 0, hostileUntil: 0, lastCrimeTick: {}, highTicks: 0 };
+    world.wanted.push(record);
+  }
+  if (record.heat >= heat) return;
+  record.heat = Math.min(heat, MAX_HEAT[world.policeMode]);
+  const level = wantedLevel(record.heat);
+  if (level > ped.wanted) {
+    ped.wanted = level;
+    world.events.push({ type: 'wanted', tick: world.tick, ownerId: ped.id, pedId: ped.id, level, x: ped.x, y: ped.y });
+  }
 }
 
 /** Whether the police are after this ped (one star or more). */
@@ -221,6 +252,10 @@ export function canArrest(world: World, suspect: Ped): boolean {
  * unseen; police cars join or leave chases; reinforcements come and go.
  */
 export function stepPolice(world: World): void {
+  // Co-op: the police are after every player (who's around), at least this much.
+  if (world.heatFloor > 0 && world.policeMode !== 'off') {
+    for (const ped of world.peds.values()) if (ped.kind === 'player' && !isDead(ped)) raiseHeat(world, ped, world.heatFloor);
+  }
   if (world.wanted.length > 0) {
     world.wanted = world.wanted.filter((record) => {
       const ped = world.peds.get(record.pedId);
@@ -233,7 +268,7 @@ export function stepPolice(world: World): void {
       else if (++record.unseenTicks > COOL_OFF_TICKS && (record.unseenTicks - COOL_OFF_TICKS) % LEVEL_DROP_TICKS === 0) {
         // One star down (after the cool-off, then every LEVEL_DROP_TICKS): to the start of the level below.
         const level = wantedLevel(record.heat);
-        record.heat = level > 1 ? WANTED_LEVEL_HEAT[level - 1]! : 0;
+        record.heat = Math.max(level > 1 ? WANTED_LEVEL_HEAT[level - 1]! : 0, world.heatFloor);
       }
       // A long chase at four or five stars ends with the army being called in.
       record.highTicks = wantedLevel(record.heat) >= 4 ? record.highTicks + 1 : 0;

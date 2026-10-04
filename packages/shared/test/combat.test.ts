@@ -31,7 +31,7 @@ const WEST = Math.PI;
 
 /** A world without cars or pickups, so nothing gets in the way unless a test adds it. */
 function emptyWorld(): World {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   world.cars.clear();
   world.pickups.clear();
   return world;

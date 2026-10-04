@@ -11,7 +11,10 @@ const MODES: Record<MatchMode, { title: string; score: string; format: (value: n
   frag: { title: 'FRAG', score: 'Frags', format: String, limit: (l) => `first to ${l}`, extra: ['Deaths', (p) => p.deaths] },
   points: { title: 'POINTS', score: 'Points', format: (v) => v.toLocaleString('en-US'), limit: (l) => `first to ${l.toLocaleString('en-US')}`, extra: ['Frags', (p) => p.frags] },
   tag: { title: 'TAG', score: 'Time as it', format: formatTime, limit: (l) => `first to ${formatTime(l)} as it`, extra: ['Deaths', (p) => p.deaths] },
+  coop: { title: 'AGAINST THE POLICE', score: 'Points', format: (v) => v.toLocaleString('en-US'), limit: () => '', extra: ['Lives', (p) => p.lives] },
 };
+
+const hearts = (lives: number) => (lives > 0 ? '♥'.repeat(lives) : 'out');
 
 function formatTime(ticks: number): string {
   const seconds = Math.max(0, Math.ceil(ticks / TICK_RATE));
@@ -59,8 +62,17 @@ export class Scoreboard {
     if (match.mode === 'tag' && itId !== null && match.phase === 'playing') {
       lines.push(itId === session.myPedId ? "You're IT! Stay alive" : `IT: ${ranked.find((p) => p.pedId === itId)?.name ?? '?'}`);
     }
-    if (me) lines.push(`You: ${score(me)} · ${ordinal(myRank)} of ${ranked.length}`);
-    if (leader && leader !== me) lines.push(`Leader: ${leader.name} ${score(leader)}`);
+    if (match.mode === 'coop') {
+      // Together: how long the team has held out, the room's best, and lives left.
+      const time = match.heldOut ?? tick - match.startedAt;
+      lines.push(`Held out ${formatTime(time)}${match.bestHeldOut !== null ? ` · best ${formatTime(match.bestHeldOut)}` : ''}`);
+      if (me) lines.push(`Your lives: ${hearts(me.lives)}`);
+      const left = ranked.filter((p) => p.lives > 0).length;
+      if (ranked.length > 1) lines.push(`${left} of ${ranked.length} still in`);
+    } else {
+      if (me) lines.push(`You: ${score(me)} · ${ordinal(myRank)} of ${ranked.length}`);
+      if (leader && leader !== me) lines.push(`Leader: ${leader.name} ${score(leader)}`);
+    }
     this.status.textContent = lines.join('\n');
 
     const intermission = match.phase === 'intermission';
@@ -70,7 +82,9 @@ export class Scoreboard {
     const winners = ranked.filter((p) => match.winnerIds.includes(p.pedId)).map((p) => p.name);
     const title = !intermission
       ? 'Scores'
-      : winners.length === 1
+      : match.mode === 'coop'
+        ? `Held out ${formatTime(match.heldOut ?? 0)}${match.heldOut !== null && match.heldOut >= (match.bestHeldOut ?? 0) ? ': a new best!' : ''}`
+        : winners.length === 1
         ? `${winners[0]} wins!`
         : winners.length > 1
           ? `Draw: ${winners.join(', ')}`

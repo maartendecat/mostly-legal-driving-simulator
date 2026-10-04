@@ -10,6 +10,7 @@ import {
   TICK_RATE,
   captureSnapshot,
   createWorld,
+  emptyScore,
   encodeDelta,
   generateCity,
   quantizeSnapshot,
@@ -221,7 +222,7 @@ export class GameRoom {
     const players: PlayerInfo[] = [];
     for (const player of this.players) {
       acks[player.pedId] = player.ack;
-      const score = this.match.scores.get(player.pedId) ?? { frags: 0, deaths: 0, points: 0, itTicks: 0 };
+      const score = this.match.scores.get(player.pedId) ?? emptyScore();
       players.push({ pedId: player.pedId, name: player.name, ...score });
     }
     return { acks, players, match: this.match.state, playerPeds: new Set(players.map((p) => p.pedId)) };

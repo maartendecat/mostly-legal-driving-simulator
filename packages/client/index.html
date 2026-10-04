@@ -30,6 +30,27 @@
         pointer-events: none;
         overflow: hidden;
       }
+      #popups {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .popup {
+        position: absolute;
+        left: 0;
+        top: 0;
+        font-size: 22px;
+        font-weight: bold;
+        color: #ffd23f;
+        -webkit-text-stroke: 1px #3a2a00;
+        text-shadow: 0 2px 3px rgba(0, 0, 0, 0.8);
+        white-space: nowrap;
+      }
+      .popup.loss {
+        color: #ff4d4d;
+        -webkit-text-stroke: 1px #3a0000;
+      }
       .name-tag {
         position: absolute;
         left: 0;
@@ -419,6 +440,7 @@
   <body>
     <div id="game"></div>
     <div id="tags"></div>
+    <div id="popups"></div>
     <div id="arrows"></div>
     <div id="hud"></div>
     <div id="stars" aria-label="Wanted level"></div>
@@ -452,6 +474,7 @@
             <option value="frag">Frag</option>
             <option value="points">Points</option>
             <option value="tag">Tag</option>
+            <option value="coop">Together against the police</option>
           </select>
           <select id="lobby-time" aria-label="Time limit">
             <option value="5">5 min</option>

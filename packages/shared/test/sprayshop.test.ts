@@ -20,7 +20,7 @@ const run = (world: World, ticks: number) => {
 
 /** A player driving a car standing in the first spray shop's bay. */
 function inTheBay(): { world: World; player: Ped; car: Car } {
-  const world = createWorld(generateCity(1), 1);
+  const world = createWorld(generateCity(1, 6), 1);
   world.cars.clear();
   world.pickups.clear();
   const shop = world.map.sprayShops[0]!;
@@ -34,7 +34,7 @@ function inTheBay(): { world: World; player: Ped; car: Car } {
 
 test('every city has two spray shops: a bay on the pavement, the garage behind it, the road in front', () => {
   for (const seed of [1, 2, 3, 4, 5]) {
-    const map = generateCity(seed);
+    const map = generateCity(seed, 6);
     assert.equal(map.sprayShops.length, 2);
     for (const shop of map.sprayShops) {
       const d = DIRECTIONS[shop.dir]!;
