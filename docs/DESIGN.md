@@ -140,9 +140,19 @@ at 1.8. Radius 0.18. Enter a car within 0.7 blocks of its edge; get out at up to
 driver's side if free, else the other.
 
 **Car physics** (arcade, not realistic): velocity is split into forward and sideways parts. Throttle
-and brake change the forward part; **grip** bleeds off the sideways part, much more slowly with the
-handbrake on, which makes drifting. Steering is proportional to speed (full above 2.5 blocks/s,
-reversed when reversing). Walls: the car's outline is sampled at 8 points; movement is resolved per
+and brake change the forward part. **Grip** is how hard the tyres can push sideways (blocks/s²):
+within it, the sideways part is turned into the forward part, so the car's movement turns with it and
+**keeps its speed through a turn**; turn harder than that at speed and the car **slides wide**, losing
+4 blocks/s per second while it slides. With the handbrake on, grip is a fraction of that: a
+handbrake turn swings the car round about 75° in under half a second, sliding sideways, and it
+straightens out within a second. Steering is proportional to speed (full above 2.5 blocks/s,
+reversed when reversing) and fades towards top speed by the model's **understeer** (the share lost
+at top speed, falling off with speed squared), so fast cars need braking for corners.
+
+(Until the handling was reworked, grip simply deleted the sideways part: every car turned in a
+circle about 2 blocks wide even at top speed, and lost half its speed doing so. Turning acted as a
+brake, which the chasing police and fire trucks had come to rely on; they now slow down for sharp
+turns themselves, and when stuck back up swinging their nose towards where they're going.) Walls: the car's outline is sampled at 8 points; movement is resolved per
 axis with a small bounce. Cars hit each other as two circles each (front and back).
 
 **Mass:** in a collision each car is pushed out, and gets its share of the impulse, by the other's
@@ -150,21 +160,25 @@ share of the total mass; crash damage is split the same way (the lighter car get
 tank crushes a car it's pressed against (1.5 damage per tick, about 90 per second, however slowly).
 **Armour:** the share of bullet damage that gets through (explosions always do full damage).
 
-| Car | Length × width | Top speed | Accel | Turn rate | Grip | Handbrake grip | Health | Mass | Armour |
-|---|---|---|---|---|---|---|---|---|---|
-| Compact | 1.0 × 0.5 | 11 | 9 | 3.2 | 8 | 1.2 | 80 | 0.8 | 1 |
-| Sedan | 1.15 × 0.55 | 13 | 8 | 2.8 | 7 | 1.0 | 100 | 1 | 1 |
-| Sports car | 1.1 × 0.55 | 18 | 13 | 3.0 | 9 | 1.4 | 90 | 1 | 1 |
-| Truck | 1.6 × 0.65 | 9 | 5 | 2.0 | 10 | 2.0 | 180 | 2 | 1 |
-| Fire truck | 1.8 × 0.7 | 10 | 5 | 2.0 | 10 | 2.0 | 220 | 2.5 | 1 |
-| SWAT van | 1.5 × 0.68 | 11 | 6 | 2.2 | 9 | 1.6 | 350 | 2.5 | 0.3 |
-| Army truck | 1.7 × 0.72 | 9 | 4.5 | 1.9 | 10 | 2.0 | 300 | 3 | 0.5 |
-| Tank | 1.6 × 0.95 | 5 | 3 | 1.3 | 14 | 6 | 1000 | 12 | 0.1 |
+| Car | Length × width | Top speed | Accel | Turn rate | Grip | Handbrake grip | Understeer | Health | Mass | Armour | Full lock at top speed |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Compact | 1.0 × 0.5 | 11 | 9 | 3.2 | 24 | 5 | 0.3 | 80 | 0.8 | 1 | 4.5-block circle, slides 8° |
+| Sedan | 1.15 × 0.55 | 13 | 8 | 2.8 | 22 | 4.5 | 0.35 | 100 | 1 | 1 | 5.8, slides 16° |
+| Sports car | 1.1 × 0.55 | 18 | 13 | 3.0 | 32 | 6 | 0.45 | 90 | 1 | 1 | 8.2, holds on |
+| Truck | 1.6 × 0.65 | 9 | 5 | 2.0 | 14 | 5 | 0.45 | 180 | 2 | 1 | 4.3, holds on |
+| Fire truck | 1.8 × 0.7 | 10 | 5 | 2.0 | 14 | 5 | 0.45 | 220 | 2.5 | 1 | 4.8 |
+| SWAT van | 1.5 × 0.68 | 11 | 6 | 2.2 | 17 | 5 | 0.4 | 350 | 2.5 | 0.3 | 5.2 |
+| Army truck | 1.7 × 0.72 | 9 | 4.5 | 1.9 | 13 | 5 | 0.45 | 300 | 3 | 0.5 | 4.4 |
+| Tank | 1.6 × 0.95 | 5 | 3 | 1.3 | 40 | 20 | 0 | 1000 | 12 | 0.1 | 2.4 (tracks) |
 
 (Speeds in blocks/s; the HUD shows ×10 as "km/h".) Fire trucks, SWAT vans, army trucks and tanks
 only come when sent (see [§11](#11-fire-brigade) and [§12](#12-police)), but can be stolen like any
-car; a stolen tank fires its cannon straight ahead with the fire key. Not yet modelled:
-speed-dependent understeer.
+car; a stolen tank fires its cannon straight ahead with the fire key. ("Full lock at top speed":
+the circle's radius in blocks, holding full throttle and full steering, and how far the car slides
+sideways; every car keeps its speed.) Measured after the rework: traffic flows as before (94% of
+traffic moving in the 12×12 city), fires are out 11–14 s after the explosion, and a two-star
+suspect standing still is busted after 6–9 s; a tick costs about 0.7 ms (traffic carries more speed,
+so it looks further ahead for obstacles).
 
 ## 7. Combat
 
@@ -660,6 +674,7 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 | Killing players is no crime | The police shouldn't punish playing the deathmatch (decided after the analysis) |
 | Arrest takes a second you can break away from | Escapes possible, arrests deliberate (decided after the analysis) |
 | Plus a second for the cop to get hold of you | Playtest feedback: arrests came too quickly |
+| Grip as a sideways force, not a decay | Cars kept turning on a dime at any speed and braked in every turn; now speed carries through and fast cars slide |
 | Mass and armour per car model | The army needs it (a sedan mustn't shove a tank); trucks now win collisions too |
 | Units count their crews on foot | Otherwise every unit that pulled up was replaced at once, endlessly |
 | Tank and helicopter: CC0 models from poly.pizza | Kenney's kits have neither; Quaternius's tank and kazuma's helicopter are CC0 (other helicopters found needed credit) |
@@ -691,6 +706,5 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 - Gang members don't drive, don't fight each other, and chase in a straight line (no path finding).
 - Points popping up where they're earned, like GTA2.
 - Traffic only on generated cities; no traffic lights.
-- No speed-dependent understeer.
 - A misprediction while bumping into another player's car shows as a short glide.
 - WebRTC/WebTransport and hit lag compensation: after playtesting over the internet.

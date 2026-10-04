@@ -32,6 +32,8 @@ const MAX_EXIT_SPEED = 4;
 const COAST_DECEL = 3;
 const HANDBRAKE_DECEL = 6;
 const HANDBRAKE_TURN_BOOST = 1.35;
+/** Sliding (more than a little sideways), a car loses this much speed per second. */
+const SLIDE_DRAG = 4;
 /** Speed below which steering is weakened, so parked cars can't spin on the spot. */
 const FULL_STEER_SPEED = 2.5;
 const WALL_BOUNCE = 0.25;
@@ -557,12 +559,23 @@ function driveCar(world: World, car: Car, input: PlayerInput, dt: number): void 
   }
   if (input.handbrake) forward -= Math.sign(forward) * Math.min(Math.abs(forward), HANDBRAKE_DECEL * dt);
 
-  // Arcade drift: sideways velocity bleeds off by grip, much more slowly with the handbrake on.
-  side *= Math.exp(-(input.handbrake ? m.handbrakeGrip : m.grip) * dt);
+  // Tyres: they pull the sideways movement into line with the car, but only as hard as they grip.
+  // Within that, the movement turns with the car and keeps its speed (the sideways part goes into
+  // the forward part); beyond it, the car slides wide and scrubs off speed. A car mostly going
+  // sideways (spun round, say) just slows down sideways.
+  const pull = (input.handbrake ? m.handbrakeGrip : m.grip) * dt;
+  const newSide = side - Math.sign(side) * Math.min(Math.abs(side), pull);
+  if (Math.abs(forward) > Math.abs(side)) {
+    forward = Math.sign(forward) * Math.min(Math.sqrt(forward * forward + side * side - newSide * newSide), Math.max(Math.abs(forward), m.maxSpeed));
+  }
+  if (Math.abs(newSide) > 0.5) forward -= Math.sign(forward) * Math.min(Math.abs(forward), SLIDE_DRAG * dt);
+  side = newSide;
 
   const steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-  // Steering scales with speed and flips when reversing.
-  car.angVel = steer * m.turnRate * clamp(forward / FULL_STEER_SPEED, -1, 1) * (input.handbrake ? HANDBRAKE_TURN_BOOST : 1);
+  // Steering scales with speed (none when stopped), flips when reversing, and fades towards top
+  // speed by the model's understeer.
+  const understeer = 1 - m.understeer * Math.min(1, Math.abs(forward) / m.maxSpeed) ** 2;
+  car.angVel = steer * m.turnRate * clamp(forward / FULL_STEER_SPEED, -1, 1) * understeer * (input.handbrake ? HANDBRAKE_TURN_BOOST : 1);
 
   car.vx = cos * forward + sin * side;
   car.vy = sin * forward - cos * side;

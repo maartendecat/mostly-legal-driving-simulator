@@ -206,7 +206,7 @@ tanks and helicopters, ✅ spray shops, as planned in [docs/POLICE.md](docs/POLI
 3. Combat: ✅ 3a weapons (pistol, machine gun, rocket launcher) and pickups; ✅ 3b health,
    damage, death and respawning, exploding cars; ✅ 3c Frag mode with kill feed and
    scoreboard; ✅ 3d player arrows; ✅ 3e Points and Tag modes
-4. (optional) Car handling: mass, speed-dependent steering
+4. ✅ Car handling: mass, grip, understeer and powerslides
 5. ✅ 5a Lobby and game rooms (map editor: later)
 6. Graphics: ✅ 6a Kenney CC0 art pack (classic GTA2-files pack: later)
 7. ✅ Online play over the internet: delta snapshots (about 5–20 kB/s per player instead of

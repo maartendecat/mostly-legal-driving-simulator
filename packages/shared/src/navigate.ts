@@ -14,6 +14,9 @@ import type { Car, World } from './world';
 const REPLAN_TICKS = 30;
 const STUCK_TICKS = secondsToTicks(1);
 const REVERSE_TICKS = secondsToTicks(0.8);
+/** Turning more than this (radians) to face where it's going: crawl round at this speed. */
+const SHARP_TURN = 1.2;
+const CRAWL_SPEED = 2;
 
 /** The car's speed along its heading (negative when reversing). */
 export function forwardSpeed(car: Car): number {
@@ -23,13 +26,10 @@ export function forwardSpeed(car: Car): number {
 /**
  * This tick's controls to drive towards (x, y) at up to `speed` (`turnSpeed` in sharp turns):
  * straight at it when it's in plain sight, otherwise along the road path (kept in `traffic.route`).
- * When stuck it backs up for a moment, turning, and tries again.
+ * It slows down for turns (cars keep their speed through them), and when stuck it backs up for a
+ * moment, swinging its nose round towards where it's going, and tries again.
  */
 export function driveTowards(world: World, car: Car, traffic: TrafficState, x: number, y: number, speed: number, turnSpeed: number): PlayerInput {
-  if (traffic.reverseTicks > 0) {
-    traffic.reverseTicks--;
-    return { ...NO_INPUT, down: true, left: traffic.reverseTicks % 40 < 20 };
-  }
   const forward = forwardSpeed(car);
   let aim = { x, y };
   if (!lineOfSight(world.map, car.x, car.y, x, y)) {
@@ -41,9 +41,16 @@ export function driveTowards(world: World, car: Car, traffic: TrafficState, x: n
   } else {
     traffic.route = [];
   }
-
   const turnNeeded = wrapAngle(Math.atan2(aim.y - car.y, aim.x - car.x) - car.heading);
-  const wanted = Math.abs(turnNeeded) > 0.5 ? turnSpeed : speed;
+
+  if (traffic.reverseTicks > 0) {
+    // Backing up, steering the other way round, so the nose swings towards where it's going.
+    traffic.reverseTicks--;
+    return { ...NO_INPUT, down: true, left: turnNeeded < -0.1, right: turnNeeded > 0.1 };
+  }
+  // Cars keep their speed through turns (see driveCar), so slow down for them: a lot for sharp ones.
+  const sharpness = Math.abs(turnNeeded);
+  const wanted = sharpness > SHARP_TURN ? Math.min(turnSpeed, CRAWL_SPEED) : sharpness > 0.5 ? turnSpeed : speed;
   if (Math.abs(forward) < 0.3) traffic.stuckTicks++;
   else traffic.stuckTicks = 0;
   if (traffic.stuckTicks > STUCK_TICKS) {

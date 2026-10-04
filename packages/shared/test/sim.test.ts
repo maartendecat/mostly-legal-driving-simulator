@@ -15,6 +15,10 @@ import {
   type Car,
   type PlayerInput,
   type World,
+  createMap,
+  wrapAngle,
+  type CarModelId,
+  spawnCar,
 } from '../src/index';
 
 function firstCar(world: World): Car {
@@ -149,4 +153,53 @@ test('a full big city replays identically (the car grid is derived, not state)',
   }
   assert.deepEqual([...copy.cars.values()], [...world.cars.values()]);
   assert.deepEqual([...copy.peds.values()], [...world.peds.values()]);
+});
+
+/** A car on an empty, wall-free map, with a driver, going `speed` east. */
+function openRoad(model: CarModelId, speed: number) {
+  const map = createMap(300, 300);
+  map.kinds.fill(0);
+  const world = createWorld(map, 1);
+  const car = spawnCar(world, model, 150, 150, 0);
+  const driver = spawnPed(world, car.x, car.y);
+  car.driverId = driver.id;
+  driver.carId = car.id;
+  car.vx = speed;
+  const drive = (ticks: number, input: Partial<PlayerInput>) => {
+    for (let i = 0; i < ticks; i++) stepWorld(world, new Map([[driver.id, { ...NO_INPUT, ...input }]]));
+  };
+  const slip = () => Math.abs(wrapAngle(Math.atan2(car.vy, car.vx) - car.heading));
+  return { car, drive, slip };
+}
+
+test('handling: cars keep their speed through a turn, and fast ones turn wider (understeer)', () => {
+  const fast = openRoad('sports', 18);
+  fast.drive(120, { up: true, left: true });
+  assert.ok(carSpeed(fast.car) > 17, `kept its speed: ${carSpeed(fast.car).toFixed(1)}`);
+  // Turning rate at top speed vs at a third of it: understeer takes some steering away.
+  const rate = (speed: number) => {
+    const road = openRoad('sedan', speed);
+    road.drive(1, { up: true, left: true });
+    return road.car.angVel;
+  };
+  assert.ok(rate(13) < rate(5) * 0.75, `${rate(13).toFixed(2)} vs ${rate(5).toFixed(2)} rad/s`);
+});
+
+test('handling: turning harder than the tyres grip slides the car wide; trucks hold on', () => {
+  const sedan = openRoad('sedan', 13);
+  sedan.drive(60, { up: true, left: true });
+  assert.ok(sedan.slip() > 0.15, `the sedan slides (${((sedan.slip() * 180) / Math.PI).toFixed(0)}°)`);
+  const truck = openRoad('truck', 9);
+  truck.drive(60, { up: true, left: true });
+  assert.ok(truck.slip() < 0.05, 'the truck holds on');
+});
+
+test('handling: a handbrake turn swings the car round sideways, and it straightens out afterwards', () => {
+  const { car, drive, slip } = openRoad('sedan', 10);
+  drive(24, { handbrake: true, left: true });
+  assert.ok(car.heading > 1, `swung round (${((car.heading * 180) / Math.PI).toFixed(0)}°)`);
+  assert.ok(slip() > 1, 'sliding sideways');
+  drive(60, { up: true });
+  assert.ok(slip() < 0.05, 'and back in line');
+  assert.ok(carSpeed(car) > 5, 'driving on');
 });
