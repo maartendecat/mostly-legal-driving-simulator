@@ -70,6 +70,14 @@ export interface BlockMap {
   pickupSpawns: PickupSpawn[];
   /** Where cop bribes lie (only in cities with police). */
   bribeSpawns: Vec2[];
+  /** Spray shops: the bay on the pavement (its centre), and the direction (index into DIRECTIONS) of the garage behind it. */
+  sprayShops: SprayShop[];
+}
+
+export interface SprayShop {
+  x: number;
+  y: number;
+  dir: number;
 }
 
 export function createMap(width: number, height: number): BlockMap {
@@ -86,6 +94,7 @@ export function createMap(width: number, height: number): BlockMap {
     carSpawns: [],
     pickupSpawns: [],
     bribeSpawns: [],
+    sprayShops: [],
   };
 }
 

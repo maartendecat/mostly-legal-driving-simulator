@@ -1,6 +1,7 @@
 import { randomPick } from './math';
 import { provokeGang } from './gangs';
-import { reportCrime, reportHarm, reportWreck } from './police';
+import { HELICOPTER_RADIUS, damageHelicopter } from './helicopter';
+import { crewOf, reportCrime, reportHarm, reportWreck } from './police';
 import { WRECK_BURN_TICKS } from './fire';
 import { CORPSE_TICKS, ejectDriver } from './pedestrians';
 import { secondsToTicks } from './time';
@@ -85,8 +86,8 @@ export function damageCar(world: World, car: Car, amount: number, attackerId: nu
   // A traffic car's driver bails out of the burning car and runs (no time for that when a rocket
   // blows it up); the car rolls to a stop. A police car's crew both get out.
   if (car.traffic && car.explodeAt === null && fuseTicks >= MIN_BAIL_OUT_TICKS) {
-    ejectDriver(world, car, car, car.police ? 'cop' : 'civilian', 1);
-    if (car.police) ejectDriver(world, car, car, 'cop', -1);
+    ejectDriver(world, car, car, car.police ? crewOf(car) : 'civilian', 1);
+    if (car.police) ejectDriver(world, car, car, crewOf(car), -1);
   }
   car.traffic = null;
   car.siren = false;
@@ -122,6 +123,10 @@ export function explode(
     const d = Math.hypot(car.x - x, car.y - y);
     const fuse = cause === 'carExplosion' ? CAR_BURN_TICKS : ROCKET_CAR_FUSE_TICKS;
     if (d < radius) damageCar(world, car, damage * (1 - d / radius), attackerId, fuse);
+  }
+  for (const heli of world.helicopters.values()) {
+    const d = Math.hypot(heli.x - x, heli.y - y);
+    if (d < radius + HELICOPTER_RADIUS) damageHelicopter(world, heli, damage * Math.min(1, 1 - (d - HELICOPTER_RADIUS) / radius), attackerId);
   }
 }
 

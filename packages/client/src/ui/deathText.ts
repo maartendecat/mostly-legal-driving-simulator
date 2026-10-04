@@ -9,19 +9,25 @@ const CAUSES: Record<DamageCause, string> = {
   rocketLauncher: 'rocket',
   runOver: 'run over',
   carExplosion: 'car explosion',
+  tankShell: 'tank shell',
 };
 
 export function causeName(cause: DamageCause): string {
   return CAUSES[cause];
 }
 
-/** A player's name; for the city's people, their gang or "A cop" (anyone else is "Someone"). */
+/** A player's name; for the city's people, their gang, the police or the army (anyone else is "Someone"). */
 export function playerName(session: GameSession, pedId: number | null): string {
   const player = session.players.find((p) => p.pedId === pedId);
   if (player) return player.name;
   const ped = pedId === null ? undefined : session.world.peds.get(pedId);
   if (ped?.kind === 'gangster') return gangName(ped.gang);
   if (ped?.kind === 'cop') return 'A cop';
+  if (ped?.kind === 'swat') return 'SWAT';
+  if (ped?.kind === 'soldier') return 'A soldier';
+  // The army's machines shoot with nobody at the controls: the tank or helicopter itself.
+  if (pedId !== null && session.world.cars.get(pedId)?.model === 'tank') return 'A tank';
+  if (pedId !== null && session.world.helicopters.has(pedId)) return 'A helicopter';
   return 'Someone';
 }
 

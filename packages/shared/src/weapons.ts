@@ -37,6 +37,11 @@ export const WEAPONS = {
     id: 'rocketLauncher', name: 'Rocket launcher', cooldownTicks: 50, projectile: 'rocket', speed: 11, range: 22,
     spread: 0, pickupAmmo: 5, maxAmmo: 20, damage: 150, blastRadius: 1.8,
   },
+  /** A tank's cannon (see army.ts): never a pickup, never in anyone's hands. */
+  tankShell: {
+    id: 'tankShell', name: 'Tank shell', cooldownTicks: 150, projectile: 'rocket', speed: 14, range: 18,
+    spread: 0.02, pickupAmmo: 0, maxAmmo: 0, damage: 160, blastRadius: 2.2,
+  },
 } as const satisfies Record<string, WeaponDef>;
 
 export type WeaponId = keyof typeof WEAPONS;

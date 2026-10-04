@@ -172,9 +172,21 @@ test('police cars nearby chase a wanted player along the roads, pull up, and the
   run(world, 1);
   assert.ok(police.siren && police.traffic?.pursuing === player.id, 'giving chase, lights flashing');
   let busted = false;
-  run(world, secondsToTicks(15), () => (busted ||= world.events.some((e) => e.type === 'busted' && e.pedId === player.id)));
+  let copsThen = 0;
+  run(world, secondsToTicks(15), () => {
+    if (busted || !world.events.some((e) => e.type === 'busted' && e.pedId === player.id)) return;
+    busted = true;
+    copsThen = cops(world).length;
+  });
   assert.ok(busted, 'busted');
-  assert.ok(cops(world).length >= 2, 'by the cops from the car');
+  assert.ok(copsThen >= 2, 'by the cops from the car');
+  // Brought in for the chase, they go again once they're out of sight and not needed.
+  // (Taken away to the far corner of the city: the cops are out of their sight, and not needed.)
+  const far = cops(world).every((c) => Math.hypot(c.x - 70.5, c.y - 70.5) > 20);
+  player.x = far ? 70.5 : 5.5;
+  player.y = far ? 70.5 : 5.5;
+  run(world, secondsToTicks(1));
+  assert.ok(cops(world).length < copsThen, 'and they left again');
 });
 
 test('out of sight of the police for a while, they give up; their cars go back to driving around', () => {
@@ -188,16 +200,21 @@ test('out of sight of the police for a while, they give up; their cars go back t
   assert.equal(player.wanted, 0);
   assert.equal(world.wanted.length, 0);
 
+  // (Parked and empty, out of sight, it has been cleared away by now.)
+  assert.ok(!world.cars.has(police.id));
+
   // A police car that was chasing them goes back to driving around.
-  startTraffic(world, police);
+  const chaser = spawnCar(world, 'sedan', 20.5, 1.5, 0);
+  chaser.police = true;
+  startTraffic(world, chaser);
   reportCrime(world, player.id, 'assaultPolice');
-  police.traffic!.pursuing = player.id;
-  police.siren = true;
+  chaser.traffic!.pursuing = player.id;
+  chaser.siren = true;
   world.wanted = [];
   player.wanted = 0;
   run(world, 2);
-  assert.equal(police.siren, false);
-  assert.equal(police.traffic?.pursuing, null);
+  assert.equal(chaser.siren, false);
+  assert.equal(chaser.traffic?.pursuing, null);
 });
 
 test('dying clears your record', () => {

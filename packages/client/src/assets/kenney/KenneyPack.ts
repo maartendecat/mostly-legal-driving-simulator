@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Block, CAR_MODELS, type BlockMap, type Car, type CarModelId, type Ped, type PedLook, type Pickup, type WeaponId } from '@game/shared';
+import { Block, CAR_MODELS, type BlockMap, type Car, type CarModelId, type Helicopter, type Ped, type PedLook, type Pickup, type WeaponId } from '@game/shared';
 import type { AssetPack, EntityView, PickupViewState } from '../AssetPack';
-import { BloodPool, CarDamageEffects, WalkAnimation, WaterJet, carDamage, hash } from '../common';
+import { BloodPool, CarDamageEffects, WalkAnimation, WaterJet, carDamage, createSprayShops, hash } from '../common';
 import { PlaceholderPack, hasDash } from '../placeholder/PlaceholderPack';
+import { createHelicopterModelView, createTankModelView, loadArmyModels, type ArmyModels } from './army';
 
 const BASE = `${import.meta.env.BASE_URL}assets/kenney/`;
 
@@ -14,10 +15,21 @@ const CAR_VARIANTS: Record<CarModelId, string[]> = {
   sports: ['sedan-sports', 'race'],
   truck: ['truck', 'delivery', 'garbage-truck'],
   fireTruck: ['firetruck'],
+  swatVan: ['delivery'],
+  armyTruck: ['truck'],
+  tank: ['truck'], // (not used: the tank has a model of its own, see army.ts)
 };
+/** The SWAT van and army truck: the Car Kit's delivery van and truck, painted over. */
+const VEHICLE_TINTS: Partial<Record<CarModelId, number>> = { swatVan: 0x55607a, armyTruck: 0x8e9c5c };
 
-/** Which Top-down Shooter character plays whom: players and civilians by look, gangs, and cops. */
-const LOOK_CHARACTERS: Record<PedLook, string> = { man: 'manBrown', woman: 'womanGreen', youth: 'survivor1', worker: 'soldier1', elder: 'manOld' };
+/**
+ * Which Top-down Shooter character plays whom: players and civilians by look (a worker is the
+ * brown-coated man in a hi-vis orange), gangs, cops, and the soldier for SWAT (in black) and the army.
+ */
+const LOOK_CHARACTERS: Record<PedLook, string> = { man: 'manBrown', woman: 'womanGreen', youth: 'survivor1', worker: 'manBrown', elder: 'manOld' };
+const WORKER_TINT = 0xffb060;
+const SOLDIER_CHARACTER = 'soldier1';
+const SWAT_TINT = 0x5c6370;
 const GANG_CHARACTERS = ['hitman1', 'robot1', 'zombie1'];
 const COP_CHARACTER = 'manBlue';
 /** The blue shirt darkened to a police uniform's navy. */
@@ -27,12 +39,13 @@ const POLICE_CAR = 'police';
 /** Their lights, flashing red and blue while they chase someone (switching this many times a second). */
 const SIREN_RATE = 4;
 
-const CHARACTERS = [...new Set([...Object.values(LOOK_CHARACTERS), ...GANG_CHARACTERS, COP_CHARACTER])];
+const CHARACTERS = [...new Set([...Object.values(LOOK_CHARACTERS), ...GANG_CHARACTERS, COP_CHARACTER, SOLDIER_CHARACTER])];
 type Pose = 'stand' | 'gun' | 'machine' | 'silencer';
 const POSES: Pose[] = ['stand', 'gun', 'machine', 'silencer'];
-const POSE_FOR_WEAPON: Record<WeaponId, Pose> = { pistol: 'gun', machineGun: 'machine', rocketLauncher: 'silencer' };
-const WEAPON_ICONS: Record<WeaponId, string> = { pistol: 'weapon_gun', machineGun: 'weapon_machine', rocketLauncher: 'weapon_silencer' };
-const WEAPON_COLORS: Record<WeaponId, number> = { pistol: 0xd7dde0, machineGun: 0x42a5f5, rocketLauncher: 0xef5350 };
+// (Nobody holds a tank shell: it's the tank's cannon. The entries just keep the tables complete.)
+const POSE_FOR_WEAPON: Record<WeaponId, Pose> = { pistol: 'gun', machineGun: 'machine', rocketLauncher: 'silencer', tankShell: 'silencer' };
+const WEAPON_ICONS: Record<WeaponId, string> = { pistol: 'weapon_gun', machineGun: 'weapon_machine', rocketLauncher: 'weapon_silencer', tankShell: 'weapon_silencer' };
+const WEAPON_COLORS: Record<WeaponId, number> = { pistol: 0xd7dde0, machineGun: 0x42a5f5, rocketLauncher: 0xef5350, tankShell: 0x8d6e63 };
 /** Cop bribes: a police-blue glow and a gold star. */
 const BRIBE_COLOR = 0x2f6bff;
 
@@ -75,6 +88,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
   private facade!: THREE.Texture;
   private roof!: THREE.Texture;
   private bribeIcon!: THREE.Texture;
+  private army!: ArmyModels;
   private readonly spriteGeometry = new THREE.PlaneGeometry(1, 1);
 
   override async load(): Promise<void> {
@@ -101,6 +115,7 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
     const tiles = [...Object.values(GROUND_TILES), ...BUSHES, 'tile_129', ...Object.values(WEAPON_ICONS)].map((t) => `tiles/${t}`);
     await Promise.all([...people, ...tiles].map(loadTexture));
     await Promise.all([...new Set([...Object.values(CAR_VARIANTS).flat(), POLICE_CAR])].map(loadCar));
+    this.army = await loadArmyModels(gltf);
     this.facade = canvasTexture(64, drawFacade);
     this.roof = canvasTexture(64, drawRoof);
     this.bribeIcon = canvasTexture(48, drawBribe);
@@ -178,13 +193,15 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
       }
     }
     group.add(buildings);
+    group.add(createSprayShops(map));
     return group;
   }
 
   override createCarView(car: Car): EntityView<Car> {
+    if (car.model === 'tank') return createTankModelView(this.army, car);
     const m = CAR_MODELS[car.model];
     const variants = CAR_VARIANTS[car.model];
-    const template = this.cars.get(car.police ? POLICE_CAR : variants[car.id % variants.length]!)!;
+    const template = this.cars.get(car.police && car.model === 'sedan' ? POLICE_CAR : variants[car.id % variants.length]!)!;
     const group = new THREE.Group();
 
     // Stretch the model to our car's exact footprint; height follows the width.
@@ -214,13 +231,18 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
     let sirenTime = 0;
     const jet = new WaterJet(new THREE.Vector3(m.length * 0.15, 0, template.size.z * widthScale + 0.1));
     group.add(jet.object);
-    const white = new THREE.Color(0xffffff);
+    const white = new THREE.Color(VEHICLE_TINTS[car.model] ?? 0xffffff);
+    // Resprayed: the model's light paint takes the new colour (the dark parts stay dark).
+    const paint = new THREE.Color();
+    const newColour = new THREE.Color();
+    const paintFor = (state: Car) => (state.paintJobs > 0 ? paint.setHex(0xffffff).lerp(newColour.setHex(state.color), 0.65) : white);
     const burnt = new THREE.Color(0x1c1c1c);
     return {
       object: group,
       update: (dt, state) => {
         const damage = carDamage(state);
-        for (const material of materials) material.color.copy(white).lerp(burnt, state.wrecked ? 0.85 : damage * 0.55);
+        const base = paintFor(state);
+        for (const material of materials) material.color.copy(base).lerp(burnt, state.wrecked ? 0.85 : damage * 0.55);
         effects.update(dt, state);
         jet.update(dt, state);
         sirenTime = state.siren ? sirenTime + dt : 0;
@@ -239,8 +261,16 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
   override createPedView(ped: Ped): EntityView<Ped> {
     const group = new THREE.Group();
     const character =
-      ped.kind === 'gangster' ? (GANG_CHARACTERS[ped.gang - 1] ?? GANG_CHARACTERS[0]!) : ped.kind === 'cop' ? COP_CHARACTER : LOOK_CHARACTERS[ped.look];
-    const tint = new THREE.Color(ped.kind === 'cop' ? COP_TINT : 0xffffff);
+      ped.kind === 'gangster'
+        ? (GANG_CHARACTERS[ped.gang - 1] ?? GANG_CHARACTERS[0]!)
+        : ped.kind === 'cop'
+          ? COP_CHARACTER
+          : ped.kind === 'swat' || ped.kind === 'soldier'
+            ? SOLDIER_CHARACTER
+            : LOOK_CHARACTERS[ped.look];
+    const tint = new THREE.Color(
+      ped.kind === 'cop' ? COP_TINT : ped.kind === 'swat' ? SWAT_TINT : ped.kind !== 'soldier' && ped.look === 'worker' ? WORKER_TINT : 0xffffff,
+    );
     const material = spriteMaterial(this.texture(`people/${character}_stand`));
     const sprite = new THREE.Mesh(this.spriteGeometry, material);
     // The upper body turns around the body's centre, not the sprite's (a gun makes those differ).
@@ -290,6 +320,10 @@ export class KenneyPack extends PlaceholderPack implements AssetPack {
         walk.dispose();
       },
     };
+  }
+
+  override createHelicopterView(): EntityView<Helicopter> {
+    return createHelicopterModelView(this.army);
   }
 
   override createPickupView(pickup: Pickup): EntityView<PickupViewState> {

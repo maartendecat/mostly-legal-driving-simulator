@@ -10,8 +10,8 @@ import type { Snapshot } from './protocol';
  */
 
 type Entity = { id: number };
-type EntityKey = 'cars' | 'peds' | 'projectiles' | 'pickups';
-const ENTITY_KEYS: EntityKey[] = ['cars', 'peds', 'projectiles', 'pickups'];
+type EntityKey = 'cars' | 'peds' | 'projectiles' | 'pickups' | 'helicopters';
+const ENTITY_KEYS: EntityKey[] = ['cars', 'peds', 'projectiles', 'pickups', 'helicopters'];
 
 /** Entities that are new (all fields) or changed (only the changed fields), and ids that are gone. */
 export interface EntityDelta {
@@ -28,6 +28,7 @@ export interface SnapshotDelta {
   peds: EntityDelta;
   projectiles: EntityDelta;
   pickups: EntityDelta;
+  helicopters: EntityDelta;
 }
 
 /** Decimal places kept for fractional numbers (positions, velocities, headings). */
@@ -51,6 +52,7 @@ export function encodeDelta(previous: Snapshot, next: Snapshot): SnapshotDelta {
     peds: {},
     projectiles: {},
     pickups: {},
+    helicopters: {},
   };
   for (const key of ENTITY_KEYS) delta[key] = diffEntities(previous[key] as Entity[], next[key] as Entity[]);
   return delta;

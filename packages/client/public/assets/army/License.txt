@@ -1,0 +1,8 @@
+The army's vehicles, both CC0 (public domain), from poly.pizza:
+
+  tank.glb        "Tank" by Quaternius        https://poly.pizza/m/FA5daiyZQq
+  helicopter.glb  "Helicopter" by kazuma      https://poly.pizza/m/EQJ2MECUbx
+
+Licence: Creative Commons Zero (CC0), https://creativecommons.org/publicdomain/zero/1.0/
+Used as is, except that the game repaints the helicopter olive and attaches the tank's gun to its turret
+(at load time, see packages/client/src/assets/kenney/army.ts).

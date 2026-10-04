@@ -8,8 +8,11 @@ import { clamp, nextRandom, randomPick, wrapAngle } from './math';
 import { TICK_DT, secondsToTicks } from './time';
 import { CAR_MODELS, type CarModel, type CarModelId } from './vehicles';
 import type { Grudge } from './gangs';
+import type { Roadblock } from './escalation';
 import { stepFire } from './fire';
-import { reportCrime, stepPolice, type PoliceMode, type WantedRecord } from './police';
+import { stepSprayShops } from './sprayshop';
+import { stepHelicopters, type Helicopter } from './helicopter';
+import { crewOf, reportCrime, stepPolice, type PoliceMode, type WantedRecord } from './police';
 import type { WeaponId } from './weapons';
 
 /**
@@ -38,13 +41,15 @@ const WALL_CRASH_DAMAGE = 6;
 const CAR_CRASH_DAMAGE = 5;
 /** Cops thrown out of their car by a car thief take this long to get back on their feet. */
 const HIJACKED_COP_STUN_TICKS = secondsToTicks(1);
+/** Damage per tick to a car a tank is pushing against (about 90 per second). */
+const TANK_CRUSH_DAMAGE = 1.5;
 /** Hitting a police car faster than this (blocks/s) gets the police after you. */
 const POLICE_BUMP_SPEED = 1;
 /** A car hitting a ped faster than this hurts them; at about 6 blocks/s it's fatal. */
 const RUN_OVER_SAFE_SPEED = 3;
 const RUN_OVER_DAMAGE = 30;
 
-const CAR_COLORS = [0xc0392b, 0x2980b9, 0xf1c40f, 0x27ae60, 0xecf0f1, 0x8e44ad, 0xe67e22, 0x2c3e50];
+export const CAR_COLORS = [0xc0392b, 0x2980b9, 0xf1c40f, 0x27ae60, 0xecf0f1, 0x8e44ad, 0xe67e22, 0x2c3e50];
 const PED_COLORS = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x1abc9c, 0xff66cc, 0xffffff];
 /** Players' looks, by join order (gangsters and cops look like their gang or the police). */
 const PLAYER_LOOKS: PedLook[] = ['man', 'woman', 'youth', 'worker'];
@@ -53,9 +58,15 @@ const SPAWN_MODELS: CarModelId[] = ['compact', 'compact', 'sedan', 'sedan', 'sed
 
 /**
  * Who a ped is: a player, or one of the city's people (who walk on their own, see pedestrians.ts):
- * ordinary civilians, gang members on their gang's turf, and cops on patrol.
+ * ordinary civilians, gang members on their gang's turf, cops on patrol, and SWAT officers and
+ * soldiers who only turn up when a player's wanted level is high (see police.ts).
  */
-export type PedKind = 'player' | 'civilian' | 'gangster' | 'cop';
+export type PedKind = 'player' | 'civilian' | 'gangster' | 'cop' | 'swat' | 'soldier';
+
+/** The police and the army: cops, SWAT officers and soldiers (see police.ts). */
+export function isLaw(ped: Ped): boolean {
+  return ped.kind === 'cop' || ped.kind === 'swat' || ped.kind === 'soldier';
+}
 /** What a player or civilian looks like. Elderly people walk slower, youths a little faster. */
 export type PedLook = 'man' | 'woman' | 'youth' | 'worker' | 'elder';
 
@@ -120,6 +131,12 @@ export interface Car {
   burnsUntil: number | null;
   /** A fire truck spraying water: where at. */
   spray: { x: number; y: number } | null;
+  /** A tank's turret: where it points (an absolute heading; see army.ts). */
+  turret: number;
+  /** Ticks until a tank's cannon can fire again. */
+  gunCooldown: number;
+  /** How often it's been resprayed (see sprayshop.ts): asset packs that use their own paint switch to `color` then. */
+  paintJobs: number;
 }
 
 export interface World {
@@ -151,6 +168,12 @@ export interface World {
   policeMode: PoliceMode;
   /** Players the police are after, until when (see police.ts). */
   wanted: WantedRecord[];
+  /** Roadblocks the police have set up (see escalation.ts). */
+  roadblocks: Roadblock[];
+  /** The army's helicopters (see helicopter.ts). */
+  helicopters: Map<number, Helicopter>;
+  /** Per spray shop: ticks a car has been waiting in its bay (see sprayshop.ts). */
+  sprayProgress: number[];
   /** Gangs angry with players who hurt their members (see gangs.ts). */
   grudges: Grudge[];
 }
@@ -192,6 +215,9 @@ export function createWorld(map: BlockMap, seed = 1, { traffic = 0, pedestrians 
     policeMode: police,
     fireTruckTarget: fireTrucks,
     wanted: [],
+    roadblocks: [],
+    helicopters: new Map(),
+    sprayProgress: map.sprayShops.map(() => 0),
     grudges: [],
   };
   for (const spawn of map.carSpawns) spawnRandomCar(world, spawn);
@@ -222,6 +248,9 @@ export function spawnCar(world: World, model: CarModelId, x: number, y: number, 
     siren: false,
     burnsUntil: null,
     spray: null,
+    turret: heading,
+    gunCooldown: 0,
+    paintJobs: 0,
   };
   world.cars.set(car.id, car);
   return car;
@@ -276,7 +305,10 @@ export function cloneWorld(world: World): World {
     pickups: new Map([...world.pickups].map(([id, p]) => [id, { ...p }])),
     events: [],
     grudges: world.grudges.map((g) => ({ ...g })),
-    wanted: world.wanted.map((w) => ({ ...w })),
+    wanted: world.wanted.map((w) => ({ ...w, lastCrimeTick: { ...w.lastCrimeTick } })),
+    roadblocks: world.roadblocks.map((b) => ({ ...b, carIds: [...b.carIds] })),
+    helicopters: new Map([...world.helicopters].map(([id, h]) => [id, { ...h }])),
+    sprayProgress: [...world.sprayProgress],
   };
 }
 
@@ -323,6 +355,9 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
           ? trafficInput(world, car)
           : NO_INPUT;
     driveCar(world, car, input, dt);
+    if (car.gunCooldown > 0) car.gunCooldown--;
+    // A player driving a tank aims the turret straight ahead.
+    if (car.model === 'tank' && car.driverId !== null) car.turret = car.heading;
   }
 
   resolveCarCollisions(world);
@@ -342,7 +377,9 @@ export function stepWorld(world: World, inputs: ReadonlyMap<number, PlayerInput>
   stepProjectiles(world, dt);
   stepPedestrians(world, dt);
   stepPolice(world);
+  stepHelicopters(world, dt);
   stepFire(world);
+  stepSprayShops(world);
   updateLifecycle(world);
   maintainTraffic(world);
   maintainPedestrians(world);
@@ -386,7 +423,7 @@ function tryEnterCar(world: World, ped: Ped): boolean {
   if (best.traffic && best.police) {
     // A police car, crew and all: they jump out, and now they're after you.
     for (const side of [1, -1] as const) {
-      const cop = ejectDriver(world, best, ped, 'cop', side);
+      const cop = ejectDriver(world, best, ped, crewOf(best), side);
       if (cop) cop.ai!.waitTicks = HIJACKED_COP_STUN_TICKS; // a moment to get away
     }
     reportCrime(world, ped.id, 'stealPoliceCar');
@@ -596,15 +633,21 @@ function collideCars(world: World, a: Car, b: Car): void {
   }
   if (deepest <= 0) return;
 
-  const push = deepest / 2;
-  if (!carCollides(map, ma, a.x + nx * push, a.y + ny * push, a.heading)) {
-    a.x += nx * push;
-    a.y += ny * push;
+  // Heavier cars move less: each is pushed out by the other's share of the total mass.
+  const total = ma.mass + mb.mass;
+  const pushA = (deepest * mb.mass) / total;
+  const pushB = (deepest * ma.mass) / total;
+  if (!carCollides(map, ma, a.x + nx * pushA, a.y + ny * pushA, a.heading)) {
+    a.x += nx * pushA;
+    a.y += ny * pushA;
   }
-  if (!carCollides(map, mb, b.x - nx * push, b.y - ny * push, b.heading)) {
-    b.x -= nx * push;
-    b.y -= ny * push;
+  if (!carCollides(map, mb, b.x - nx * pushB, b.y - ny * pushB, b.heading)) {
+    b.x -= nx * pushB;
+    b.y -= ny * pushB;
   }
+  // A tank crushes whatever car it's pushing against, however slowly.
+  if (a.model === 'tank' && !b.wrecked) damageCar(world, b, TANK_CRUSH_DAMAGE, a.driverId ?? a.lastAttackerId);
+  if (b.model === 'tank' && !a.wrecked) damageCar(world, a, TANK_CRUSH_DAMAGE, b.driverId ?? b.lastAttackerId);
 
   const approach = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
   // Ramming a police car (more than a touch) is a crime: the police are after you at once.
@@ -613,17 +656,18 @@ function collideCars(world: World, a: Car, b: Car): void {
     if (b.police && !b.wrecked) reportCrime(world, a.driverId, 'assaultPolice');
   }
   if (-approach > CRASH_SAFE_SPEED) {
-    // Both cars get hurt; each driver gets the credit for what they did to the other car.
+    // Both cars get hurt, the lighter one more; each driver gets the credit for what they did to the other car.
     const damage = (-approach - CRASH_SAFE_SPEED) * CAR_CRASH_DAMAGE;
-    damageCar(world, a, damage, b.driverId);
-    damageCar(world, b, damage, a.driverId);
+    damageCar(world, a, (damage * 2 * mb.mass) / total, b.driverId);
+    damageCar(world, b, (damage * 2 * ma.mass) / total, a.driverId);
   }
   if (approach < 0) {
-    const impulse = (-(1 + CAR_RESTITUTION) * approach) / 2;
-    a.vx += nx * impulse;
-    a.vy += ny * impulse;
-    b.vx -= nx * impulse;
-    b.vy -= ny * impulse;
+    // An impulse along the contact normal, shared out by mass (equal masses: half each).
+    const impulse = (-(1 + CAR_RESTITUTION) * approach) / (1 / ma.mass + 1 / mb.mass);
+    a.vx += (nx * impulse) / ma.mass;
+    a.vy += (ny * impulse) / ma.mass;
+    b.vx -= (nx * impulse) / mb.mass;
+    b.vy -= (ny * impulse) / mb.mass;
   }
 }
 

@@ -1,5 +1,6 @@
 import type { GameEvent, Pickup, Projectile } from './combat';
 import type { SnapshotDelta } from './delta';
+import type { Helicopter } from './helicopter';
 import type { PlayerInput } from './input';
 import { MATCH_MODES, type MatchMode, type MatchPhase, type MatchState, type PlayerScore } from './match';
 import { POLICE_MODES, type PoliceMode } from './police';
@@ -60,6 +61,7 @@ export interface Snapshot {
   peds: Ped[];
   projectiles: Projectile[];
   pickups: Pickup[];
+  helicopters: Helicopter[];
 }
 
 /**
@@ -107,6 +109,7 @@ export function captureSnapshot(world: World): Snapshot {
     peds: [...world.peds.values()],
     projectiles: [...world.projectiles.values()],
     pickups: [...world.pickups.values()],
+    helicopters: [...world.helicopters.values()],
   };
 }
 
@@ -120,6 +123,7 @@ export function applySnapshot(world: World, snapshot: Snapshot): void {
   world.peds = new Map(snapshot.peds.map((ped) => [ped.id, ped]));
   world.projectiles = new Map(snapshot.projectiles.map((p) => [p.id, p]));
   world.pickups = new Map(snapshot.pickups.map((p) => [p.id, p]));
+  world.helicopters = new Map((snapshot.helicopters ?? []).map((h) => [h.id, h]));
 }
 
 /** Parses an untrusted client message, returning null if it's malformed. */

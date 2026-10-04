@@ -188,6 +188,39 @@
         display: none;
       }
 
+      #stars {
+        position: fixed;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 4px;
+        font-size: 26px;
+        line-height: 1;
+        pointer-events: none;
+      }
+      #stars .star {
+        color: transparent;
+        -webkit-text-stroke: 1.5px rgba(255, 255, 255, 0.55);
+        text-shadow: none;
+      }
+      #stars .star.lit {
+        color: #ffd23f;
+        -webkit-text-stroke: 1.5px #7a5a00;
+        text-shadow: 0 1px 3px #000;
+      }
+      #stars .star.army.lit {
+        color: #ff3b30;
+        -webkit-text-stroke: 1.5px #6b0d08;
+      }
+      #stars.flash .star.lit {
+        animation: star-flash 0.25s steps(2) infinite;
+      }
+      @keyframes star-flash {
+        50% {
+          opacity: 0.25;
+        }
+      }
       #toast {
         position: fixed;
         left: 50%;
@@ -388,6 +421,7 @@
     <div id="tags"></div>
     <div id="arrows"></div>
     <div id="hud"></div>
+    <div id="stars" aria-label="Wanted level"></div>
     <div id="corner">
       <div id="match-status" hidden></div>
       <div id="killfeed"></div>

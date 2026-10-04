@@ -164,7 +164,9 @@ export function maintainTraffic(world: World): void {
     if (car.traffic && car.police) police++;
     else if (car.traffic && !isFireTruck(car)) count++;
   }
-  const addPolice = police < world.policeCarTarget;
+  // (While anyone's wanted, the police send cars themselves, counting the crews already out on
+  // foot: see escalation.ts. Topping up the patrol here as well would keep adding cars.)
+  const addPolice = police < world.policeCarTarget && !world.wanted.some((w) => (world.peds.get(w.pedId)?.wanted ?? 0) > 0);
   if (count >= world.trafficTarget && !addPolice) return;
   // Cars that dropped out of traffic stay behind as parked cars; don't let the city fill up with them.
   if (world.cars.size >= world.map.carSpawns.length + (world.trafficTarget + world.policeCarTarget) * 2) return;

@@ -7,7 +7,7 @@ import { nextRandom, randomInt, randomPick, wrapAngle } from './math';
 import { secondsToTicks } from './time';
 import { CAR_MODELS } from './vehicles';
 import { WEAPONS } from './weapons';
-import { PED_RADIUS, carExitPoint, carSpeed, pedCollides, spawnPed, type Car, type Ped, type PedKind, type PedLook, type World } from './world';
+import { PED_RADIUS, carExitPoint, carSpeed, isLaw, pedCollides, spawnPed, type Car, type Ped, type PedKind, type PedLook, type World } from './world';
 
 /**
  * Pedestrians: the people walking around the city. They stroll along the pavements cell by cell,
@@ -45,6 +45,11 @@ export interface PedestrianState {
   aimTicks: number;
   /** A cop arresting someone: ticks spent cuffing them so far (see CUFF_TICKS). */
   cuffTicks: number;
+  /**
+   * Brought in for a chase (out of a police car or SWAT van, at a roadblock, a soldier) rather than
+   * on patrol: taken off the streets again once they're not needed (see escalation.ts).
+   */
+  temporary: boolean;
   /** The bodies they've already noticed (the most recent few), so each one only startles them once. */
   seenBodies: number[];
   /** Something they're staring at while standing still (a body), or walking over to (`approach`). */
@@ -90,6 +95,8 @@ const SHOT_TICKS = secondsToTicks(1.25);
 const AIM_ERROR = 0.16;
 /** Police blue, for asset packs that colour people. */
 export const COP_COLOR = 0x1e40af;
+const SWAT_COLOR = 0x2b2f36;
+const SOLDIER_COLOR = 0x556b2f;
 /** Bodies this close (in blocks, in plain sight) get noticed by passers-by. */
 const BODY_NOTICE_RANGE = 4;
 /** The chance a civilian hurries away from a body instead of stopping to stare at it... */
@@ -114,6 +121,9 @@ export const CUFF_TICKS = secondsToTicks(1);
 const BREAK_AWAY_STUN_TICKS = secondsToTicks(1);
 /** Cops who may shoot do so from this far, unless the suspect is this close and can be grabbed. */
 const COP_SHOOT_RANGE = 10;
+/** SWAT officers and soldiers come from further away, and shoot from further away too. */
+const HEAVY_CHASE_RANGE = 40;
+const HEAVY_SHOOT_RANGE = 12;
 const COP_GRAB_DISTANCE = 4;
 /** A distance further than any target, for "no progress measured yet". */
 const FAR = 1e6;
@@ -124,7 +134,8 @@ export function isPedestrian(ped: Ped): boolean {
 
 /**
  * Adds one of the city's people standing at the centre of a pavement cell: a civilian, a member of
- * `gang`, or a cop. Gang members and cops carry a pistol.
+ * `gang`, a cop, a SWAT officer or a soldier. Gang members and cops carry a pistol, SWAT and soldiers
+ * a machine gun.
  */
 export function spawnPedestrian(world: World, cx: number, cy: number, kind: Exclude<PedKind, 'player'> = 'civilian', gang = 0): Ped {
   const ped = spawnPed(world, cx + 0.5, cy + 0.5);
@@ -132,15 +143,18 @@ export function spawnPedestrian(world: World, cx: number, cy: number, kind: Excl
   ped.gang = kind === 'gangster' ? gang : 0;
   if (kind === 'gangster') ped.color = GANGS[gang - 1]?.color ?? ped.color;
   if (kind === 'cop') ped.color = COP_COLOR;
+  if (kind === 'swat') ped.color = SWAT_COLOR;
+  if (kind === 'soldier') ped.color = SOLDIER_COLOR;
   if (kind === 'civilian') ped.look = randomPick(world, CIVILIAN_LOOKS);
   else {
     ped.look = 'man';
-    ped.weapon = 'pistol';
-    ped.ammo = { pistol: WEAPONS.pistol.maxAmmo };
+    const weapon = kind === 'swat' || kind === 'soldier' ? 'machineGun' : 'pistol';
+    ped.weapon = weapon;
+    ped.ammo = { [weapon]: WEAPONS[weapon].maxAmmo };
   }
   const dir = randomInt(world, 4);
   ped.heading = DIRECTIONS[dir]!.heading;
-  ped.ai = { dir, target: { x: cx + 0.5, y: cy + 0.5 }, waitTicks: 0, panicTicks: 0, panicFrom: null, panicPath: null, crossing: false, stuckTicks: 0, lastDistance: FAR, aimTicks: 0, cuffTicks: 0, seenBodies: [], lookAt: null, approach: false };
+  ped.ai = { dir, target: { x: cx + 0.5, y: cy + 0.5 }, waitTicks: 0, panicTicks: 0, panicFrom: null, panicPath: null, crossing: false, stuckTicks: 0, lastDistance: FAR, aimTicks: 0, cuffTicks: 0, temporary: kind === 'swat' || kind === 'soldier', seenBodies: [], lookAt: null, approach: false };
   return ped;
 }
 
@@ -155,10 +169,10 @@ export function stepPedestrians(world: World, dt: number): void {
     const ai = ped.ai;
     if (!ai || ped.respawnAt !== null || ped.carId !== null) continue;
     if (ped.kind === 'gangster' && fightGrudge(world, ped, ai, dt)) continue;
-    if (ped.kind === 'cop' && chaseSuspect(world, ped, ai, dt)) continue;
+    if (isLaw(ped) && chaseSuspect(world, ped, ai, dt)) continue;
     noticeDanger(world, ped, ai);
-    // Gang members have seen it all before.
-    if (bodies.length > 0 && ped.kind !== 'gangster') noticeBodies(world, ped, ai, bodies);
+    // Gang members, SWAT and soldiers have seen it all before.
+    if (bodies.length > 0 && (ped.kind === 'civilian' || ped.kind === 'cop')) noticeBodies(world, ped, ai, bodies);
     walk(world, ped, ai, dt);
   }
 }
@@ -173,7 +187,7 @@ export function ejectDriver(
   world: World,
   car: Car,
   from: { x: number; y: number },
-  kind: 'civilian' | 'cop' = 'civilian',
+  kind: 'civilian' | 'cop' | 'swat' | 'soldier' = 'civilian',
   side: 1 | -1 = 1,
 ): Ped | null {
   const exit = carExitPoint(world.map, car, side);
@@ -183,6 +197,7 @@ export function ejectDriver(
   driver.y = exit.y;
   driver.heading = car.heading;
   driver.ai!.target = { x: exit.x, y: exit.y };
+  if (kind !== 'civilian') driver.ai!.temporary = true;
   // Cops don't run: they go after whoever the police want (see chaseSuspect).
   if (kind === 'civilian') startPanic(world, driver, driver.ai!, { x: from.x, y: from.y }, null, PANIC_TICKS);
   return driver;
@@ -252,8 +267,13 @@ function trySpawn(world: World, cells: { x: number; y: number }[], kind: Exclude
  * Returns false when there's no one to chase.
  */
 function chaseSuspect(world: World, ped: Ped, ai: PedestrianState, dt: number): boolean {
-  const suspect = nearestWanted(world, ped.x, ped.y, COP_CHASE_RANGE_WIDE);
-  if (!suspect || (suspect.wanted < 2 && Math.hypot(suspect.x - ped.x, suspect.y - ped.y) > COP_CHASE_RANGE)) return false;
+  // Cops go after anyone wanted (from further away from two stars on); SWAT only after four stars
+  // and up, soldiers only after the army's target. Those two never arrest anyone: they shoot.
+  const cop = ped.kind === 'cop';
+  const suspect = cop
+    ? nearestWanted(world, ped.x, ped.y, COP_CHASE_RANGE_WIDE)
+    : nearestWanted(world, ped.x, ped.y, HEAVY_CHASE_RANGE, ped.kind === 'swat' ? 4 : 6);
+  if (!suspect || (cop && suspect.wanted < 2 && Math.hypot(suspect.x - ped.x, suspect.y - ped.y) > COP_CHASE_RANGE)) return false;
   // Thrown out of their car by a car thief, or shaken off by a suspect breaking away: it takes them a
   // moment to get back on their feet.
   if (ai.waitTicks > 0) {
@@ -268,7 +288,7 @@ function chaseSuspect(world: World, ped: Ped, ai: PedestrianState, dt: number): 
   const dx = suspect.x - ped.x;
   const dy = suspect.y - ped.y;
   const distance = Math.hypot(dx, dy);
-  const arrestable = canArrest(world, suspect);
+  const arrestable = cop && canArrest(world, suspect);
 
   // Within reach: a moment to grab hold, then a second of cuffing; getting out of reach (or driving
   // off) breaks free, and once the cuffing had started it shakes the cop off for a moment.
@@ -293,7 +313,9 @@ function chaseSuspect(world: World, ped: Ped, ai: PedestrianState, dt: number): 
   }
 
   // Shooting (when the police do that, see policeMayShoot), unless they're close enough to grab.
-  if (policeMayShoot(world, suspect) && !(arrestable && distance < COP_GRAB_DISTANCE) && shootAt(world, ped, ai, suspect, distance, COP_SHOOT_RANGE, dt)) {
+  const mayShoot = cop ? policeMayShoot(world, suspect) : true;
+  const range = cop ? COP_SHOOT_RANGE : HEAVY_SHOOT_RANGE;
+  if (mayShoot && !(arrestable && distance < COP_GRAB_DISTANCE) && shootAt(world, ped, ai, suspect, distance, range, dt)) {
     return true;
   }
   ai.aimTicks = 0;
@@ -383,7 +405,8 @@ function noticeDanger(world: World, ped: Ped, ai: PedestrianState): void {
   const fearless = ped.kind !== 'civilian';
   for (const event of world.events) {
     if (fearless) break;
-    if (event.type === 'carDestroyed' || event.type === 'gangAngry' || !near(event.x, event.y)) continue;
+    // (Only what they'd notice: shots landing, explosions, someone dying.)
+    if ((event.type !== 'impact' && event.type !== 'explosion' && event.type !== 'death') || !near(event.x, event.y)) continue;
     source = { x: event.x, y: event.y };
     // Saw them die: running already, no need to be startled by the body again later.
     if (event.type === 'death') ai.seenBodies = [...ai.seenBodies, event.pedId].slice(-SEEN_BODIES_REMEMBERED);

@@ -42,12 +42,13 @@ export function visibleSnapshot(snapshot: Snapshot, view: View | null, playerPed
     peds: snapshot.peds.filter((p) => playerPeds.has(p.id) || sees(view, p.x, p.y)),
     cars: snapshot.cars.filter((c) => (c.driverId !== null && playerPeds.has(c.driverId)) || sees(view, c.x, c.y)),
     projectiles: snapshot.projectiles.filter((p) => sees(view, p.x, p.y)),
+    helicopters: snapshot.helicopters.filter((h) => sees(view, h.x, h.y)),
   };
 }
 
 /**
  * Players' deaths, arrests and wrecked cars go to everyone (kill feed, scoring); a gang's grudge,
- * or the police being after them, to that player only; pedestrians' deaths, sparks and explosions only to those who can see them.
+ * the police being after them, or a new paint job, to that player only; pedestrians' deaths, sparks and explosions only to those who can see them.
  */
 export function visibleEvents(events: readonly GameEvent[], view: View | null, playerPeds: ReadonlySet<number>, viewer: number): GameEvent[] {
   if (!view) return [...events];
@@ -56,7 +57,7 @@ export function visibleEvents(events: readonly GameEvent[], view: View | null, p
       (e.type === 'death' && playerPeds.has(e.pedId)) ||
       e.type === 'busted' ||
       e.type === 'carDestroyed' ||
-      (e.type === 'gangAngry' || e.type === 'wanted' ? e.pedId === viewer : sees(view, e.x, e.y)),
+      (e.type === 'gangAngry' || e.type === 'wanted' || e.type === 'sprayed' ? e.pedId === viewer : sees(view, e.x, e.y)),
   );
 }
 

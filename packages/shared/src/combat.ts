@@ -1,17 +1,23 @@
 import { damageCar, damagePed, explode, isDead, type DamageCause } from './damage';
 import type { PlayerInput } from './input';
 import { isSolidAt } from './map';
+import { fireCannon } from './army';
+import { damageHelicopter, helicopterAt, type Helicopter } from './helicopter';
 import { bribePolice, reportCrime } from './police';
 import { TICK_RATE, secondsToTicks } from './time';
+import { CAR_MODELS } from './vehicles';
 import { WEAPONS, WEAPON_IDS, type ProjectileKind, type WeaponId } from './weapons';
 import { PED_RADIUS, carContainsPoint, type Car, type Ped, type World } from './world';
 
-/** A bullet or rocket in flight. */
+/** A bullet, rocket or shell in flight. */
 export interface Projectile {
   id: number;
   kind: ProjectileKind;
   weapon: WeaponId;
+  /** Who fired it (a ped; for a tank or helicopter with nobody at the controls, the vehicle). */
   ownerId: number;
+  /** Fired down from a helicopter: flies over walls. */
+  fromAbove: boolean;
   x: number;
   y: number;
   heading: number;
@@ -47,6 +53,8 @@ export type GameEvent =
   | { type: 'gangAngry'; tick: number; ownerId: number; gang: number; pedId: number; x: number; y: number }
   /** The police are now after a player (`pedId`), at this wanted level. */
   | { type: 'wanted'; tick: number; ownerId: number; pedId: number; level: number; x: number; y: number }
+  /** A player's car got a new paint job at a spray shop; `lostThem`: the police were after them, and lost them. */
+  | { type: 'sprayed'; tick: number; ownerId: number; pedId: number; lostThem: boolean; x: number; y: number }
   /** A cop (`copId`) arrested a player (`pedId`). */
   | { type: 'busted'; tick: number; ownerId: number; pedId: number; copId: number; x: number; y: number }
   /** A car blew up; `attackerId` is who gets the credit (null for accidents). */
@@ -62,7 +70,7 @@ const PROJECTILE_SUBSTEPS = 3;
 /** Cars are tougher than people: bullets do this fraction of their damage to them. */
 const BULLET_CAR_DAMAGE = 0.5;
 
-type Hit = { type: 'wall' } | { type: 'car'; car: Car } | { type: 'ped'; ped: Ped };
+type Hit = { type: 'wall' } | { type: 'car'; car: Car } | { type: 'ped'; ped: Ped } | { type: 'helicopter'; heli: Helicopter };
 
 export function isPickupAvailable(world: World, pickup: Pickup): boolean {
   return world.tick >= pickup.availableAt;
@@ -84,8 +92,12 @@ export function spawnBribe(world: World, x: number, y: number): Pickup {
 export function updateWeapons(world: World, ped: Ped, input: PlayerInput, switchDirection: number): void {
   if (ped.fireCooldown > 0) ped.fireCooldown--;
   if (switchDirection !== 0) cycleWeapon(ped, switchDirection);
-  // No drive-bys yet: you can only shoot on foot. (Dead peds never get here.)
+  // No drive-bys yet: you can only shoot on foot, or fire a tank's cannon. (Dead peds never get here.)
   if (input.fire && ped.carId === null) fireWeapon(world, ped);
+  else if (input.fire && ped.carId !== null) {
+    const car = world.cars.get(ped.carId);
+    if (car?.model === 'tank' && car.driverId === ped.id) fireCannon(world, car, ped.id);
+  }
 }
 
 /** Selects the next (or previous) weapon that has ammo; unarmed if there is none. */
@@ -108,26 +120,35 @@ export function fireWeapon(world: World, ped: Ped): void {
 
   const weapon = WEAPONS[ped.weapon];
   const muzzle = PED_RADIUS + MUZZLE_GAP;
-  // Deterministic "random" spread, so the server and the predicting client agree on every shot.
-  const heading = ped.heading + (hash01(world.tick, ped.id) * 2 - 1) * weapon.spread;
-  const projectile: Projectile = {
-    id: world.nextId++,
-    kind: weapon.projectile,
-    weapon: ped.weapon,
-    ownerId: ped.id,
-    x: ped.x + Math.cos(ped.heading) * muzzle,
-    y: ped.y + Math.sin(ped.heading) * muzzle,
-    heading,
-    speed: weapon.speed,
-    ticksLeft: secondsToTicks(weapon.range / weapon.speed),
-  };
-  world.projectiles.set(projectile.id, projectile);
+  spawnProjectile(world, ped.weapon, ped.id, ped.x + Math.cos(ped.heading) * muzzle, ped.y + Math.sin(ped.heading) * muzzle, ped.heading);
 
   ped.fireCooldown = weapon.cooldownTicks;
   // Shooting is a crime where the police can see it: heat per second of firing.
   if (ped.kind === 'player') reportCrime(world, ped.id, 'shooting', weapon.cooldownTicks / TICK_RATE);
   ped.ammo[ped.weapon] = ammo - 1;
   if (ammo - 1 === 0) cycleWeapon(ped, 1);
+}
+
+/**
+ * Launches a projectile of `weapon` from (x, y) along `heading`, give or take the weapon's spread
+ * (deterministic, so the server and the predicting client agree on every shot).
+ */
+export function spawnProjectile(world: World, weapon: WeaponId, ownerId: number, x: number, y: number, heading: number, fromAbove = false): Projectile {
+  const def = WEAPONS[weapon];
+  const projectile: Projectile = {
+    id: world.nextId++,
+    kind: def.projectile,
+    weapon,
+    ownerId,
+    fromAbove,
+    x,
+    y,
+    heading: heading + (hash01(world.tick, ownerId) * 2 - 1) * def.spread,
+    speed: def.speed,
+    ticksLeft: secondsToTicks(def.range / def.speed),
+  };
+  world.projectiles.set(projectile.id, projectile);
+  return projectile;
 }
 
 export function stepProjectiles(world: World, dt: number): void {
@@ -150,7 +171,12 @@ export function stepProjectiles(world: World, dt: number): void {
 
 function findHit(world: World, projectile: Projectile): Hit | null {
   const { x, y } = projectile;
-  if (isSolidAt(world.map, x, y)) return { type: 'wall' };
+  if (!projectile.fromAbove && isSolidAt(world.map, x, y)) return { type: 'wall' };
+  // Shots from the ground hit a helicopter flying over where they pass.
+  if (!projectile.fromAbove) {
+    const heli = helicopterAt(world, x, y);
+    if (heli && heli.id !== projectile.ownerId) return { type: 'helicopter', heli };
+  }
   for (const car of world.cars.values()) {
     if (carContainsPoint(car, x, y)) return { type: 'car', car };
   }
@@ -171,7 +197,8 @@ function detonate(world: World, projectile: Projectile, hit: Hit | null): void {
   }
   world.events.push({ type: 'impact', tick: world.tick, ownerId, x, y });
   if (hit?.type === 'ped') damagePed(world, hit.ped, weapon.damage, ownerId, projectile.weapon);
-  else if (hit?.type === 'car') damageCar(world, hit.car, weapon.damage * BULLET_CAR_DAMAGE, ownerId);
+  else if (hit?.type === 'car') damageCar(world, hit.car, weapon.damage * BULLET_CAR_DAMAGE * CAR_MODELS[hit.car.model].armour, ownerId);
+  else if (hit?.type === 'helicopter') damageHelicopter(world, hit.heli, weapon.damage, ownerId);
 }
 
 /** Whether this ped is allowed to take weapons from pickups at all. Tag: "it" can't. */

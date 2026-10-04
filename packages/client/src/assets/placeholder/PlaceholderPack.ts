@@ -7,13 +7,14 @@ import {
   type BlockMap,
   type Car,
   type GameEvent,
+  type Helicopter,
   type Ped,
   type Pickup,
   type Projectile,
   type WeaponId,
 } from '@game/shared';
 import type { AssetPack, EffectView, EntityView, PickupViewState } from '../AssetPack';
-import { BloodPool, CarDamageEffects, WalkAnimation, WaterJet, box, carDamage, disposeObject, hash } from '../common';
+import { BloodPool, CarDamageEffects, WalkAnimation, WaterJet, box, createHelicopterView, createSprayShops, createTankView, carDamage, disposeObject, hash } from '../common';
 
 const GROUND_COLORS: Record<number, number> = {
   [Block.Road]: 0x3a3a3f,
@@ -27,6 +28,7 @@ const WEAPON_COLORS: Record<WeaponId, number> = {
   pistol: 0xd7dde0,
   machineGun: 0x42a5f5,
   rocketLauncher: 0xef5350,
+  tankShell: 0x8d6e63,
 };
 /** Height at which projectiles fly, roughly hand height. */
 const PROJECTILE_HEIGHT = 0.35;
@@ -106,13 +108,18 @@ export class PlaceholderPack implements AssetPack {
     });
     group.add(buildingMesh);
 
+    group.add(createSprayShops(map));
     return group;
   }
 
   createCarView(car: Car): EntityView<Car> {
+    if (car.model === 'tank') {
+      const tank = createTankView(car);
+      return { ...tank, dispose: () => disposeObject(tank.object) };
+    }
     const m = CAR_MODELS[car.model];
     const group = new THREE.Group();
-    const isTruck = car.model === 'truck' || car.model === 'fireTruck';
+    const isTruck = car.model === 'truck' || car.model === 'fireTruck' || car.model === 'armyTruck' || car.model === 'swatVan';
     const paint = new THREE.Color(car.color);
 
     const body = box(m.length, m.width, 0.3, car.color);
@@ -198,6 +205,10 @@ export class PlaceholderPack implements AssetPack {
       },
       dispose: () => disposeObject(group),
     };
+  }
+
+  createHelicopterView(): EntityView<Helicopter> {
+    return createHelicopterView();
   }
 
   createProjectileView(projectile: Projectile): EntityView<Projectile> {

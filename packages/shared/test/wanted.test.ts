@@ -162,7 +162,7 @@ test('one star: cops only try to arrest; two: they shoot back at a shooter; thre
     const { world, player } = street();
     const cop = copNearby(world, player, 8);
     cop.ai!.waitTicks = 0;
-    const record = { pedId: player.id, heat: [0, 10, 30, 60][level]!, unseenTicks: 0, hostileUntil: hostile ? 10_000 : 0, lastCrimeTick: {} };
+    const record = { pedId: player.id, heat: [0, 10, 30, 60][level]!, unseenTicks: 0, hostileUntil: hostile ? 10_000 : 0, lastCrimeTick: {}, highTicks: 0 };
     world.wanted.push(record);
     player.wanted = level;
     const shots = countShots(world, cop);
@@ -206,7 +206,7 @@ test('an arrest takes a moment to get hold, then a second of cuffing; walking aw
 test('above three stars there are no more arrests', () => {
   const { world, player } = street();
   copNearby(world, player, 1).ai!.waitTicks = 0;
-  world.wanted.push({ pedId: player.id, heat: 100, unseenTicks: 0, hostileUntil: 0, lastCrimeTick: {} });
+  world.wanted.push({ pedId: player.id, heat: 100, unseenTicks: 0, hostileUntil: 0, lastCrimeTick: {}, highTicks: 0 });
   player.wanted = 4;
   run(world, secondsToTicks(3));
   assert.equal(player.respawnAt === null || player.health <= 0, true, 'shot, maybe, but not busted');
@@ -220,10 +220,13 @@ test('from two stars police cars from all over the city give chase, and reinforc
   const far = [...world.cars.values()].filter((c) => c.police && c.traffic && Math.hypot(c.x - player.x, c.y - player.y) > 20);
   reportCrime(world, player.id, 'killCop');
   assert.equal(player.wanted, 2);
-  run(world, secondsToTicks(3));
-  assert.ok(far.every((c) => c.traffic?.pursuing === player.id && c.siren), 'every police car is after them');
+  const seen = new Set<number>();
+  run(world, secondsToTicks(3), new Map(), () => {
+    for (const c of world.cars.values()) if (c.police) seen.add(c.id);
+  });
+  assert.ok(far.every((c) => c.traffic === null || (c.traffic.pursuing === player.id && c.siren)), 'every police car is after them');
   const crewed = () => [...world.cars.values()].filter((c) => c.police && c.traffic);
-  assert.equal(crewed().length, 2 + 2, 'two more police cars');
+  assert.equal(seen.size, 2 + 2, 'two more police cars');
 
   // Once nobody's wanted, the reinforcements disappear (out of sight).
   world.wanted = [];

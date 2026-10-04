@@ -1,5 +1,5 @@
 import type { Object3D } from 'three';
-import type { BlockMap, Car, GameEvent, Ped, Pickup, Projectile } from '@game/shared';
+import type { BlockMap, Car, GameEvent, Helicopter, Ped, Pickup, Projectile } from '@game/shared';
 
 /**
  * A renderable object for one game entity. The renderer positions and rotates `object` each frame,
@@ -45,6 +45,8 @@ export interface AssetPack {
   createPedView(ped: Ped): EntityView<Ped>;
   createProjectileView(projectile: Projectile): EntityView<Projectile>;
   createPickupView(pickup: Pickup): EntityView<PickupViewState>;
+  /** A helicopter; the view is placed on the ground under it and draws it at `altitude`. */
+  createHelicopterView(heli: Helicopter): EntityView<Helicopter>;
   /** The effect for a game event, or null if this pack shows nothing for it. */
   createEffectView(event: GameEvent): EffectView | null;
 }

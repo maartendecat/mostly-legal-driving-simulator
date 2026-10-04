@@ -7,6 +7,7 @@ import {
   type BlockMap,
   type Car,
   type GameEvent,
+  type Helicopter,
   type Ped,
   type Projectile,
   type World,
@@ -35,6 +36,7 @@ export class GameRenderer {
   private readonly pedViews = new Map<number, EntityView<Ped>>();
   private readonly projectileViews = new Map<number, EntityView<Projectile>>();
   private readonly pickupViews = new Map<number, EntityView<PickupViewState>>();
+  private readonly helicopterViews = new Map<number, EntityView<Helicopter>>();
   private readonly effects = new Set<EffectView>();
   private mapObject: THREE.Object3D | null = null;
   private cameraHeight = BASE_CAMERA_HEIGHT;
@@ -76,6 +78,7 @@ export class GameRenderer {
     this.syncViews(this.pedViews, world.peds, (ped) => this.pack.createPedView(ped));
     this.syncViews(this.projectileViews, world.projectiles, (p) => this.pack.createProjectileView(p));
     this.syncViews(this.pickupViews, world.pickups, (p) => this.pack.createPickupView(p));
+    this.syncViews(this.helicopterViews, world.helicopters, (h) => this.pack.createHelicopterView(h));
 
     for (const car of world.cars.values()) this.place(this.carViews.get(car.id)!, car, transforms.get(car.id) ?? car, frameDt);
     for (const ped of world.peds.values()) {
@@ -85,6 +88,7 @@ export class GameRenderer {
       this.place(view, ped, transforms.get(ped.id) ?? ped, frameDt);
     }
     for (const p of world.projectiles.values()) this.place(this.projectileViews.get(p.id)!, p, transforms.get(p.id) ?? p, frameDt);
+    for (const h of world.helicopters.values()) this.place(this.helicopterViews.get(h.id)!, h, transforms.get(h.id) ?? h, frameDt);
     const me = focusPedId === null ? undefined : world.peds.get(focusPedId);
     const weaponsUsable = !me || canPickUpWeapons(world, me);
     // Cop bribes only do anything for you while the police are after you.

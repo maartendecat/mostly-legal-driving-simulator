@@ -1,4 +1,4 @@
-import { Block, DIRECTIONS, Lane, RoadMarking, createMap, setCell, type BlockKind, type BlockMap, type CarSpawn, type PickupSpawn } from './map';
+import { Block, DIRECTIONS, Lane, RoadMarking, createMap, setCell, type BlockKind, type BlockMap, type CarSpawn, type PickupSpawn, type SprayShop } from './map';
 import { randomInt, nextRandom, randomPick, type Vec2 } from './math';
 import type { WeaponId } from './weapons';
 
@@ -13,6 +13,8 @@ const PED_SPAWN_COUNT = 24;
 const PICKUP_COUNT = 16;
 /** Cop bribes: a few, far apart. */
 const BRIBE_COUNT = 3;
+/** Spray shops: two, on opposite sides of town if possible. */
+const SPRAY_SHOP_COUNT = 2;
 /**
  * Gang turf, as city blocks (bx, by) per gang: a 2×2 corner of the city each (north-west,
  * north-east, south-centre); everything else is neutral. Blocks are counted from the south-west.
@@ -81,6 +83,7 @@ export function generateCity(seed: number, blocks = 6): BlockMap {
     BRIBE_COUNT,
     20,
   );
+  map.sprayShops = pickSprayShops(map, rng);
   return map;
 }
 
@@ -159,6 +162,30 @@ function pickPedSpawns(map: BlockMap, rng: { rngState: number }): Vec2[] {
 
 function pickPickupSpawns(map: BlockMap, rng: { rngState: number }): PickupSpawn[] {
   return pickSpread(pavementCells(map), rng, PICKUP_COUNT, 8).map((p) => ({ ...p, weapon: randomPick(rng, PICKUP_WEAPONS) }));
+}
+
+/**
+ * Spray shops: a bay on the pavement with a building behind it (the garage) and the road in front,
+ * along a straight stretch (not a corner). Picked last, so they didn't change any city.
+ */
+function pickSprayShops(map: BlockMap, rng: { rngState: number }): SprayShop[] {
+  const kind = (x: number, y: number) => (x < 0 || y < 0 || x >= map.width || y >= map.height ? Block.Building : map.kinds[y * map.width + x]);
+  const candidates: (SprayShop & { x: number; y: number })[] = [];
+  for (const cell of pavementCells(map)) {
+    const cx = Math.floor(cell.x);
+    const cy = Math.floor(cell.y);
+    for (let dir = 0; dir < 4; dir++) {
+      const d = DIRECTIONS[dir]!;
+      const side = DIRECTIONS[(dir + 1) % 4]!;
+      if (kind(cx + d.dx, cy + d.dy) !== Block.Building || kind(cx - d.dx, cy - d.dy) !== Block.Road) continue;
+      // Pavement on both sides along the kerb, so it's a straight stretch you can drive into.
+      if (kind(cx + side.dx, cy + side.dy) !== Block.Pavement || kind(cx - side.dx, cy - side.dy) !== Block.Pavement) continue;
+      if (map.levels[(cy + d.dy) * map.width + cx + d.dx]! < 1) continue;
+      candidates.push({ x: cell.x, y: cell.y, dir });
+    }
+  }
+  const away = candidates.filter((c) => map.pickupSpawns.every((p) => Math.hypot(p.x - c.x, p.y - c.y) > 3));
+  return pickSpread(away, rng, SPRAY_SHOP_COUNT, 30).map(({ x, y, dir }) => ({ x, y, dir }));
 }
 
 function pavementCells(map: BlockMap): Vec2[] {

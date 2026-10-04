@@ -1,7 +1,7 @@
 import { isDead, respawnPed } from './damage';
 import { randomPick } from './math';
 import { secondsToTicks } from './time';
-import type { World } from './world';
+import { isLaw, type World } from './world';
 
 /**
  * The multiplayer game modes, as in GTA2:
@@ -44,10 +44,14 @@ export const POINTS = {
   /** Killing one of the city's people: a little, as in GTA2; more for gang members and cops. */
   pedestrian: 10,
   gangster: 20,
+  /** A cop, SWAT officer or soldier, but only while the killer has three stars or fewer. */
   cop: 50,
   /** Getting arrested by the police. */
   busted: -250,
 } as const;
+
+/** Above this many stars, killing the police earns nothing (see scoreDeath). */
+const MAX_POINTS_WANTED_LEVEL = 3;
 
 /** What clients need to know about the match; sent in every snapshot. */
 export interface MatchState {
@@ -130,8 +134,14 @@ export class Match {
     const victim = this.scores.get(victimId);
     if (!victim) {
       // Not a player but one of the city's people: only worth a few points.
-      const kind = world.peds.get(victimId)?.kind;
-      if (killerId !== null) this.addPoints(killerId, kind === 'gangster' ? POINTS.gangster : kind === 'cop' ? POINTS.cop : POINTS.pedestrian);
+      const victimPed = world.peds.get(victimId);
+      const killer = killerId === null ? undefined : world.peds.get(killerId);
+      if (!victimPed || !killer) return;
+      // The police are worth points only while they're not out in force (three stars or fewer), so
+      // the SWAT and the army aren't a way to farm points.
+      const law = isLaw(victimPed);
+      if (law && killer.wanted > MAX_POINTS_WANTED_LEVEL) return;
+      this.addPoints(killer.id, victimPed.kind === 'gangster' ? POINTS.gangster : law ? POINTS.cop : POINTS.pedestrian);
       return;
     }
     victim.deaths++;

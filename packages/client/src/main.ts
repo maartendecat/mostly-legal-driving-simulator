@@ -32,6 +32,7 @@ import { NameTags, type NameTag } from './ui/NameTags';
 import { PlayerArrows, type PlayerArrow } from './ui/PlayerArrows';
 import { Scoreboard } from './ui/Scoreboard';
 import { Toast } from './ui/Toast';
+import { WantedStars } from './ui/WantedStars';
 
 /** Height above the ground at which name tags float, in blocks. */
 const NAME_TAG_HEIGHT = 0.9;
@@ -76,6 +77,7 @@ async function main(): Promise<void> {
   if (session instanceof NetworkSession) history.replaceState(null, '', `${location.pathname}${location.search}#room=${session.roomId}`);
   let lastIt: number | null = null;
   const toast = new Toast(document.getElementById('toast')!);
+  const wantedStars = new WantedStars(document.getElementById('stars')!);
   let blockedPickupId: number | null = null;
 
   // Handy for debugging from the browser console; stripped from production builds.
@@ -99,7 +101,8 @@ async function main(): Promise<void> {
     lastIt = it;
     for (const event of events) {
       if (event.type === 'gangAngry' && event.pedId === session.myPedId) toast.show(`${gangName(event.gang)} are after you!`);
-      if (event.type === 'wanted' && event.pedId === session.myPedId) toast.show(event.level === 1 ? 'The police are after you!' : `Wanted: ${stars(event.level)}`);
+      if (event.type === 'sprayed' && event.pedId === session.myPedId) toast.show(event.lostThem ? 'Fresh paint: the police lost you!' : 'Fresh paint!');
+      if (event.type === 'wanted' && event.pedId === session.myPedId) toast.show(WANTED_TOASTS[event.level] ?? `Wanted: ${stars(event.level)}`);
       if (event.type === 'busted' && session.players.some((p) => p.pedId === event.pedId)) killFeed.addBusted(session, event.pedId);
     }
     blockedPickupId = explainBlockedPickup(session, toast, blockedPickupId);
@@ -110,6 +113,7 @@ async function main(): Promise<void> {
 
     if (frameDt > 0) fps += (1 / frameDt - fps) * 0.05;
     hud.textContent = hudText(session, fps, pack);
+    wantedStars.update(session.myPedId === null ? 0 : (session.world.peds.get(session.myPedId)?.wanted ?? 0), now);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
@@ -226,8 +230,25 @@ function updateArrows(
 }
 
 const stars = (level: number) => '★'.repeat(level);
+/** Announcing a new wanted level. */
+const WANTED_TOASTS: Record<number, string> = {
+  1: 'The police are after you!',
+  2: 'Every cop in town is after you!',
+  3: 'Wanted: the police shoot on sight',
+  4: 'SWAT is on its way!',
+  5: 'More SWAT!',
+  6: 'THE ARMY is coming for you!',
+};
 /** What each wanted level means, for the HUD. */
-const WANTED_TEXT = ['', 'the police are after you', 'all the police are after you', 'the police shoot on sight', 'no more arrests: they shoot to kill'];
+const WANTED_TEXT = [
+  '',
+  'the police are after you',
+  'all the police are after you',
+  'the police shoot on sight, roadblocks ahead',
+  'SWAT: no more arrests, they shoot to kill',
+  'SWAT: no more arrests, they shoot to kill',
+  'THE ARMY',
+];
 
 function hudText(session: GameSession, fps: number, pack: AssetPack): string {
   const world = session.world;
@@ -247,7 +268,7 @@ function hudText(session: GameSession, fps: number, pack: AssetPack): string {
     status,
     weapon,
     turf ? `Turf of ${gangName(turf)}` : '',
-    ped && ped.wanted > 0 ? `WANTED ${stars(ped.wanted)}  ${WANTED_TEXT[Math.min(ped.wanted, WANTED_TEXT.length - 1)]}` : '',
+    ped && ped.wanted > 0 ? `Wanted: ${WANTED_TEXT[Math.min(ped.wanted, WANTED_TEXT.length - 1)]}` : '',
     ped && ped.beingArrested > 0 ? `A COP HAS GOT YOU: move to break free! ${'▮'.repeat(Math.ceil(ped.beingArrested * 10))}` : '',
     '',
     'Arrows/WASD  move / steer',

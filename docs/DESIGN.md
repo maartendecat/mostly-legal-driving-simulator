@@ -137,15 +137,26 @@ handbrake on, which makes drifting. Steering is proportional to speed (full abov
 reversed when reversing). Walls: the car's outline is sampled at 8 points; movement is resolved per
 axis with a small bounce. Cars hit each other as two circles each (front and back).
 
-| Car | Length × width | Top speed | Accel | Turn rate | Grip | Handbrake grip | Health |
-|---|---|---|---|---|---|---|---|
-| Compact | 1.0 × 0.5 | 11 | 9 | 3.2 | 8 | 1.2 | 80 |
-| Sedan | 1.15 × 0.55 | 13 | 8 | 2.8 | 7 | 1.0 | 100 |
-| Sports car | 1.1 × 0.55 | 18 | 13 | 3.0 | 9 | 1.4 | 90 |
-| Truck | 1.6 × 0.65 | 9 | 5 | 2.0 | 10 | 2.0 | 180 |
+**Mass:** in a collision each car is pushed out, and gets its share of the impulse, by the other's
+share of the total mass; crash damage is split the same way (the lighter car gets hurt more). A
+tank crushes a car it's pressed against (1.5 damage per tick, about 90 per second, however slowly).
+**Armour:** the share of bullet damage that gets through (explosions always do full damage).
 
-(Speeds in blocks/s; the HUD shows ×10 as "km/h".) Not yet modelled: mass (all cars are equally
-heavy in a crash), speed-dependent understeer. See roadmap item 4.
+| Car | Length × width | Top speed | Accel | Turn rate | Grip | Handbrake grip | Health | Mass | Armour |
+|---|---|---|---|---|---|---|---|---|---|
+| Compact | 1.0 × 0.5 | 11 | 9 | 3.2 | 8 | 1.2 | 80 | 0.8 | 1 |
+| Sedan | 1.15 × 0.55 | 13 | 8 | 2.8 | 7 | 1.0 | 100 | 1 | 1 |
+| Sports car | 1.1 × 0.55 | 18 | 13 | 3.0 | 9 | 1.4 | 90 | 1 | 1 |
+| Truck | 1.6 × 0.65 | 9 | 5 | 2.0 | 10 | 2.0 | 180 | 2 | 1 |
+| Fire truck | 1.8 × 0.7 | 10 | 5 | 2.0 | 10 | 2.0 | 220 | 2.5 | 1 |
+| SWAT van | 1.5 × 0.68 | 11 | 6 | 2.2 | 9 | 1.6 | 350 | 2.5 | 0.3 |
+| Army truck | 1.7 × 0.72 | 9 | 4.5 | 1.9 | 10 | 2.0 | 300 | 3 | 0.5 |
+| Tank | 1.6 × 0.95 | 5 | 3 | 1.3 | 14 | 6 | 1000 | 12 | 0.1 |
+
+(Speeds in blocks/s; the HUD shows ×10 as "km/h".) Fire trucks, SWAT vans, army trucks and tanks
+only come when sent (see [§11](#11-fire-brigade) and [§12](#12-police)), but can be stolen like any
+car; a stolen tank fires its cannon straight ahead with the fire key. Not yet modelled:
+speed-dependent understeer.
 
 ## 7. Combat
 
@@ -332,8 +343,9 @@ along a lane; and the danger check reacted to traffic merely driving past.)
 
 ## 12. Police
 
-`police.ts`, following the plan in [POLICE.md](POLICE.md) (step 1 of it is built: heat, wanted
-levels and the response up to three stars; SWAT, roadblocks and the army are to come).
+`police.ts` (crimes, stars, arrests), `escalation.ts` (which units come), `army.ts` (the tank),
+`helicopter.ts` and `sprayshop.ts`, following the plan in [POLICE.md](POLICE.md), all of which is
+now built (plus spray shops).
 
 - **Police on the streets:** police cars drive around with the traffic (`POLICE_CARS`, default 2;
   sedans with a crew of two, drawn as the Car Kit's police car) and cops patrol on foot (`COPS`).
@@ -353,14 +365,23 @@ levels and the response up to three stars; SWAT, roadblocks and the army are to 
   | Ramming a police car (over 1 block/s), hurting a cop or a police car | 10 (at most once a second) | always |
   | Stealing a police car | 20 | always |
   | Killing a cop, wrecking a police car | 40 | always |
+  | Killing a SWAT officer or soldier | 60 | always |
+  | Destroying a tank, shooting down a helicopter | 100 | always |
 
   "Seen": a cop on foot or a crewed police car within 12 blocks, in plain sight. A new star is
-  announced with a `wanted` event (a toast); the HUD and other players' name tags show the stars.
+  announced with a `wanted` event (a toast); six stars are always shown at the top of the screen
+  (outlined when empty, gold when earned, the army's in red, flashing when one is gained), and other
+  players' name tags show theirs.
 - **Losing stars:** out of the police's sight for 25 s the top star goes, then one more every 15 s
   (each time down to the start of the level below). Being seen resets the countdown. Dying or
   getting busted clears everything. **Cop bribes:** three crates per city (picked last by the map
   generator, so cities didn't change) take a star off at once; only a wanted player takes one, and
-  it's back after a minute.
+  it's back after a minute. **Spray shops** (`sprayshop.ts`): two per city, a garage with a striped
+  bay on the pavement in front (a straight stretch, building behind, road in front; also picked
+  last). A player's car held still (under 0.8 blocks/s) in the bay for 1.5 s gets a new colour and
+  all their stars are gone ("Fresh paint: the police lost you!"). Police and army vehicles aren't
+  painted. Art packs that use their models' own paint switch to the new colour once a car has been
+  resprayed (`paintJobs`).
 - **The response:**
   - 1 star: police cars within 20 blocks give chase (lights flashing), cops on foot within 15
     run after the suspect. No shooting.
@@ -370,14 +391,47 @@ levels and the response up to three stars; SWAT, roadblocks and the army are to 
     back at a suspect who has been shooting (in the last 10 s, where the police saw it).
   - 3 stars: cops shoot on sight; police cars ram (below three stars they keep pace behind a
     moving suspect instead).
-  - 4 stars and up: no more arrests, only shooting (until SWAT and the army come in later steps).
+    **Roadblocks:** for a suspect driving faster than 4 blocks/s, every 1 s the police try to put
+    one 18–32 blocks ahead on their road (following their direction along the grid), on a straight
+    stretch, out of every player's sight: two police cars parked across the road end to end, lights
+    flashing, two cops behind them. One per suspect, two per room, each for 45 s or until the
+    suspect drops below three stars; then cleared away once out of sight. The pavements stay open.
+  - 4 stars: no more arrests, only shooting. A **SWAT van** comes (two at 5 stars, three per room
+    at most): it pulls up within 6 blocks of a suspect going slower than 4 blocks/s and four SWAT
+    officers get out, with machine guns, coming from up to 40 blocks and shooting from 12. The van is
+    heavy and bullet-resistant.
+  - 6 stars, **the army** (rooms with police `on` only): a **tank**, a **troop truck** (four soldiers
+    with machine guns) and a **helicopter**, one each per room at most (two trucks). Six stars come
+    from 220 heat, or from **90 s in a row at four or five stars** (a long chase ends with the
+    army).
+    - The tank rolls at up to 5 blocks/s towards the suspect (stopping 6 blocks away if it can see
+      them), its turret turning on its own (1.6 rad/s), and fires a shell (a rocket: 160 damage in
+      a 2.2-block blast) every 2.5 s when lined up, in plain sight, 2.6–15 blocks away. It pushes
+      anything aside and crushes cars it pins.
+    - The helicopter flies over everything at 7.5 blocks up, circling the suspect 5 blocks away,
+      and fires machine-gun bursts (6 shots, every 2.5 s, up to 0.12 rad off) from up to 12 blocks;
+      its bullets fly over walls. Shots from the ground hit it where it flies (300 health; rockets,
+      or a lot of bullets); shot down, it spins down for 2 s and explodes (160 damage, 3 blocks).
+      When nobody's wanted enough, it flies off towards the nearest edge and disappears out of sight.
+- **Which units, how many:** each unit (police car, SWAT van, army truck, tank) goes after the
+  nearest suspect with at least its level (police cars: 1 star, within 20 blocks at one star; SWAT:
+  4; army: 6), and lets go when that's over. Units appear on a road 15–40 blocks from the most wanted
+  player they're for, out of every player's sight, at most one every half second (the heaviest
+  first), and are taken off the streets (out of sight) when no longer needed. A unit whose crew got
+  out still counts until they've gone, and while anyone's wanted the traffic doesn't top up the
+  patrol police cars itself (both kept adding units endlessly in a first version: 50 cops after 30 s).
+  Law enforcers who were brought in (crews, roadblock cops, SWAT, soldiers) are cleared away out of
+  sight once not needed, with their empty vehicles; the patrol cops stay.
 - **Chasing** is shared with the fire brigade (`navigate.ts`): straight at the suspect in plain
   sight, otherwise along the roads (a breadth-first search over road cells, redone every half
   second), up to 10 blocks/s (4 in turns), backing up when stuck. Once the suspect is within 4
   blocks and (nearly) stopped, or on foot, the car pulls up and both cops get out.
 - **Cops shooting** works like gang members: half a second to aim, a shot every 1.25 s, up to
   0.16 rad off, from up to 10 blocks (not when the suspect is within 4 blocks and can be grabbed).
-  Players killed by the police died in an accident: a death, nobody's frag.
+  SWAT and soldiers shoot the same way with machine guns, from 12. Players killed by the police or
+  the army died in an accident: a death, nobody's frag (the kill feed says "A cop", "SWAT", "A
+  soldier", "A tank" or "A helicopter"). The police are worth points (50 in Points mode) only while
+  the killer has three stars or fewer, so the SWAT and the army aren't a way to farm points.
 - **Arrest:** a cop who reaches a suspect on foot, or in a car going under 1 block/s, first needs
   a second to get hold of them, then cuffs them for a second (`beingArrested` shows the cuffing:
   "A cop has got you"). Getting out of reach (walking off, driving off) breaks free; once the
@@ -389,7 +443,20 @@ levels and the response up to three stars; SWAT, roadblocks and the army are to 
   close enough came; 2 stars: busted after 5.5–10.5 s; 3 stars: busted or shot after 5–8 s; 4
   stars: shot after 6–9 s. A full city costs about 0.5 ms per tick.
 - **Network:** chasing is decided on the server only (traffic state isn't sent); clients see
-  `siren`, `wanted` and `beingArrested`.
+  `siren`, `wanted`, `beingArrested`, a tank's `turret`, and helicopters (a new kind of entity in
+  snapshots and deltas, sent to nearby players like everything else).
+- **Looks:** SWAT in the soldier sprite darkened, soldiers as is (workers, who used it, became the
+  brown-coated man in hi-vis orange); the SWAT van and army truck are the Car Kit's delivery van and
+  truck, painted. The tank and the helicopter are CC0 models from poly.pizza ("Tank" by
+  Quaternius, "Helicopter" by kazuma, repainted olive; `public/assets/army/`), with the tank's gun
+  attached to its turret so they turn together; the placeholder pack builds both from shapes.
+- **Measured** (a player kept alive and standing still, 30 s, three cities each): 4 stars: 6 police
+  cars and a SWAT van out; 5 stars: two SWAT vans; 6 stars: the tank, the troop truck, the
+  helicopter, two SWAT vans and the police cars, with about 6–12 cops and 4–15 SWAT and soldiers on
+  foot at a time. Three stars and driving fast: a roadblock ahead within about 2 s.
+  A full city costs 0.4 ms per tick with nobody wanted, 0.8 ms with the army out (about 100 people
+  and 70 vehicles): fine on any server, but on a tenth of a CPU (Render's free plan) one such room
+  uses about half of it.
 
 ## 13. Networking
 
@@ -535,7 +602,9 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 
 - `npm test` runs node:test suites in all three packages; `npm run typecheck` checks all code.
 - **Simulation:** movement, collisions, combat, damage, deaths, matches, traffic, pedestrians,
-  gangs (turf, grudges, retaliation, chasing), cops, police (crimes, chases, arrests, giving up),
+  gangs (turf, grudges, retaliation, chasing), cops, police (crimes, chases, arrests, giving up,
+  roadblocks, SWAT, the army, helicopters shot down, tanks stolen, units leaving), spray shops, mass
+  and armour,
   fire brigade (fires burning out, dispatch out of sight, spraying, leaving, limits, stealing),
   delta encoding, and
   **replay determinism** for each of them (a copied world fed the same inputs must end up identical).
@@ -568,6 +637,9 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 | Killing players is no crime | The police shouldn't punish playing the deathmatch (decided after the analysis) |
 | Arrest takes a second you can break away from | Escapes possible, arrests deliberate (decided after the analysis) |
 | Plus a second for the cop to get hold of you | Playtest feedback: arrests came too quickly |
+| Mass and armour per car model | The army needs it (a sedan mustn't shove a tank); trucks now win collisions too |
+| Units count their crews on foot | Otherwise every unit that pulled up was replaced at once, endlessly |
+| Tank and helicopter: CC0 models from poly.pizza | Kenney's kits have neither; Quaternius's tank and kazuma's helicopter are CC0 (other helicopters found needed credit) |
 | Busted = taken away, back after 3 s, weapons gone | Like a respawn, but without a body |
 | Traffic drivers exist only when they get out | No ped to carry around in every traffic car; spawned at the door when needed |
 | Gangs: fixed turf plus per-player grudges | Like GTA2's gang respect, but simple: hurt one, the gang is after you for a while |
@@ -589,8 +661,9 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 
 ## 19. Known limitations and next steps
 
-- The rest of the police (POLICE.md steps 2–4): roadblocks and SWAT, the army (tank, soldiers,
-  helicopter).
+- Chasing units don't avoid other cars and
+  only know the roads. Helicopters' bullets come from where the helicopter is above the ground,
+  without a height.
 - A co-op game mode, everyone together against the police (TODO, after the full police).
 - Chasing police cars don't avoid other cars and only know the roads, not shortcuts across pavements.
 - Gang members don't drive, don't fight each other, and chase in a straight line (no path finding).

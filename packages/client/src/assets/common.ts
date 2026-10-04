@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CAR_MODELS, type Car, type CarModel } from '@game/shared';
+import { CAR_MODELS, DIRECTIONS, HELICOPTER_HEALTH, type BlockMap, type Car, type CarModel, type Helicopter } from '@game/shared';
 
 /** Building blocks shared by the asset packs. */
 
@@ -206,5 +206,172 @@ export class WalkAnimation {
       mesh.geometry.dispose();
       (mesh.material as THREE.Material).dispose();
     }
+  }
+}
+
+/**
+ * A tank built from boxes and cylinders (until a CC0 model replaces it): tracks, a hull, and a
+ * turret with a long barrel that turns on its own (`car.turret` is an absolute heading; the view
+ * sits in the hull's frame).
+ */
+export function createTankView(car: Car): { object: THREE.Group; update: (dt: number, state: Car) => void } {
+  const m = CAR_MODELS[car.model];
+  const group = new THREE.Group();
+  const olive = 0x4b5d3a;
+  for (const side of [1, -1]) {
+    const track = box(m.length, m.width * 0.24, 0.26, 0x26261f);
+    track.position.set(0, side * m.width * 0.38, 0.13);
+    group.add(track);
+  }
+  const hull = box(m.length * 0.92, m.width * 0.62, 0.3, olive);
+  hull.position.z = 0.3;
+  group.add(hull);
+  const turret = new THREE.Group();
+  turret.position.z = 0.5;
+  const dome = new THREE.Mesh(new THREE.CylinderGeometry(m.width * 0.3, m.width * 0.34, 0.2, 16), new THREE.MeshLambertMaterial({ color: 0x55683f }));
+  dome.rotation.x = Math.PI / 2;
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, m.length * 0.75, 10), new THREE.MeshLambertMaterial({ color: 0x2f3a26 }));
+  barrel.rotation.z = -Math.PI / 2;
+  barrel.position.x = m.length * 0.38;
+  turret.add(dome, barrel);
+  group.add(turret);
+  const effects = new CarDamageEffects(m, 0.75);
+  group.add(effects.object);
+  const materials = [hull, dome, barrel].map((mesh) => mesh.material as THREE.MeshLambertMaterial);
+  const colors = materials.map((material) => material.color.clone());
+  const burnt = new THREE.Color(0x1c1c1c);
+  return {
+    object: group,
+    update: (dt, state) => {
+      turret.rotation.z = state.turret - state.heading;
+      materials.forEach((material, i) => material.color.copy(colors[i]!).lerp(burnt, state.wrecked ? 0.85 : carDamage(state) * 0.5));
+      effects.update(dt, state);
+    },
+  };
+}
+
+/**
+ * A helicopter built from shapes (until a CC0 model replaces it), flying `altitude` blocks up with
+ * its shadow on the ground below; the rotor spins, faster while it flies, and it smokes and burns
+ * as it comes down.
+ */
+export function createHelicopterView(): { object: THREE.Group; update: (dt: number, state: Helicopter) => void; dispose: () => void } {
+  const group = new THREE.Group();
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.75, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
+  shadow.position.z = 0.03;
+  shadow.scale.set(1.6, 0.8, 1);
+  const craft = new THREE.Group();
+  const olive = 0x4b5320;
+  const body = box(1.3, 0.55, 0.5, olive);
+  const nose = box(0.35, 0.45, 0.35, 0x9fc5d8); // the cockpit glass
+  nose.position.set(0.75, 0, -0.03);
+  const tail = box(1.2, 0.14, 0.14, olive);
+  tail.position.set(-1.15, 0, 0.1);
+  const fin = box(0.25, 0.06, 0.35, olive);
+  fin.position.set(-1.7, 0, 0.25);
+  const skids = [1, -1].map((side) => {
+    const skid = box(1.2, 0.06, 0.06, 0x222222);
+    skid.position.set(0, side * 0.32, -0.32);
+    return skid;
+  });
+  const rotor = new THREE.Group();
+  for (const angle of [0, Math.PI / 2]) {
+    const blade = box(3.2, 0.12, 0.03, 0x1b1b1b);
+    blade.rotation.z = angle;
+    rotor.add(blade);
+  }
+  rotor.position.z = 0.32;
+  const tailRotor = box(0.04, 0.6, 0.06, 0x1b1b1b);
+  tailRotor.position.set(-1.7, 0.06, 0.3);
+  craft.add(body, nose, tail, fin, ...skids, rotor, tailRotor);
+  const smoke = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), new THREE.MeshBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.6 }));
+  const flame = box(0.35, 0.35, 0.35, 0xff6a00);
+  (flame.material as THREE.MeshLambertMaterial).emissive.setHex(0xff4000);
+  smoke.position.set(-0.3, 0, 0.5);
+  flame.position.set(-0.1, 0, 0.3);
+  craft.add(smoke, flame);
+  group.add(shadow, craft);
+  let time = 0;
+  return {
+    object: group,
+    update: (dt, state) => {
+      time += dt;
+      craft.position.z = state.altitude;
+      rotor.rotation.z += dt * 30;
+      tailRotor.rotation.y += dt * 40;
+      const down = state.crashAt !== null;
+      smoke.visible = flame.visible = down || state.health < HELICOPTER_HEALTH * 0.4;
+      flame.visible = down;
+      smoke.scale.setScalar(1 + 0.3 * Math.sin(time * 5));
+      // The shadow shrinks as it flies higher.
+      shadow.scale.set(1.6 - state.altitude * 0.05, 0.8 - state.altitude * 0.025, 1);
+    },
+    dispose: () => disposeObject(group),
+  };
+}
+
+/**
+ * The spray shops (see BlockMap.sprayShops): a garage door with a SPRAY sign on the building
+ * behind each bay, and yellow stripes marking the bay on the pavement. Drawn in code for any pack.
+ */
+export function createSprayShops(map: BlockMap): THREE.Object3D {
+  const group = new THREE.Group();
+  if (map.sprayShops.length === 0) return group;
+  const door = new THREE.MeshLambertMaterial({ map: canvasTexture(128, 96, drawSprayDoor) });
+  const bay = new THREE.MeshBasicMaterial({ map: canvasTexture(64, 64, drawSprayBay), transparent: true });
+  for (const shop of map.sprayShops) {
+    const d = DIRECTIONS[shop.dir]!;
+    // The door: upright on the building's face, looking out over the bay.
+    const front = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.85), door);
+    front.position.set(shop.x + d.dx * 0.505, shop.y + d.dy * 0.505, 0.43);
+    // Stood up (facing -y), then turned to face out of the building, towards the bay (-d).
+    front.rotation.set(Math.PI / 2, 0, Math.atan2(-d.dx, d.dy), 'ZXY');
+    const marks = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95), bay);
+    marks.position.set(shop.x, shop.y, 0.012);
+    marks.rotation.z = Math.atan2(d.dy, d.dx);
+    group.add(front, marks);
+  }
+  return group;
+}
+
+function canvasTexture(width: number, height: number, draw: (g: CanvasRenderingContext2D, w: number, h: number) => void): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  draw(canvas.getContext('2d')!, width, height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** A roller door with a sign above it: SPRAY, in paint colours. */
+function drawSprayDoor(g: CanvasRenderingContext2D, w: number, h: number): void {
+  g.fillStyle = '#9aa3ab';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = '#7d868e';
+  for (let y = h * 0.3; y < h; y += 7) g.fillRect(4, y, w - 8, 3);
+  const sign = ['#e74c3c', '#f1c40f', '#3498db', '#2ecc71', '#9b59b6'];
+  g.fillStyle = '#1b1b1b';
+  g.fillRect(0, 0, w, h * 0.27);
+  g.font = `bold ${Math.round(h * 0.22)}px sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  [...'SPRAY'].forEach((letter, i) => {
+    g.fillStyle = sign[i]!;
+    g.fillText(letter, w * (0.18 + i * 0.16), h * 0.14);
+  });
+}
+
+/** The bay: diagonal yellow stripes along its edges. */
+function drawSprayBay(g: CanvasRenderingContext2D, w: number, h: number): void {
+  g.strokeStyle = '#f1c40f';
+  g.lineWidth = 4;
+  g.strokeRect(3, 3, w - 6, h - 6);
+  g.lineWidth = 3;
+  for (let i = -h; i < w; i += 12) {
+    g.beginPath();
+    g.moveTo(i, h);
+    g.lineTo(i + 8, h - 8);
+    g.stroke();
   }
 }

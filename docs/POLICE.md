@@ -85,7 +85,8 @@ eyes: the police only deal with players. That keeps the system understandable, a
   While any police unit can see you, nothing drains.
 - **Busted or dead:** heat back to 0.
 - **Cop bribe crates** (new pickup, rare): one level down at once.
-- Spray shops (drive into a garage, new colour, heat back to 0): not for now (decided, §9).
+- **Spray shops** (added later, on request): drive into the garage's bay and hold still, the car
+  gets a new colour and the heat is gone (see DESIGN.md §12).
 
 ## 4. The response per level
 
@@ -171,11 +172,15 @@ In steps, each one playable and tested on its own:
    bribe crates, and −250 points when busted in Points mode. Responses for levels 1–3: extra
    police cars, cops shooting, police cars ramming. (Built; see DESIGN.md §12 for the details as
    built.)
-2. **Roadblocks and SWAT:** roadblocks at level 3, SWAT vans at levels 4–5, smarter chasing
-   (avoiding other cars).
-3. **The army on the ground:** mass in car collisions, the tank with its turret, soldiers, and
+2. ✅ **Roadblocks and SWAT:** roadblocks at level 3, SWAT vans at levels 4–5. (Not yet: smarter
+   chasing, avoiding other cars.)
+3. ✅ **The army on the ground:** mass in car collisions, the tank with its turret, soldiers, and
    escalation by time.
-4. **The helicopter:** flying entities end to end (simulation, network, drawing).
+4. ✅ **The helicopter:** flying entities end to end (simulation, network, drawing).
+5. ✅ **Spray shops** (not in the original plan; asked for afterwards).
+
+The tank and the helicopter are CC0 models from poly.pizza ("Tank" by Quaternius, "Helicopter" by
+kazuma), as decided.
 
 Steps 1 and 2 are about as big as the gangs were. Steps 3 and 4 are bigger, mostly because of
 the new physics and the new entity type.
@@ -187,7 +192,8 @@ Taken after reviewing this analysis:
 1. **Killing other players is not a crime.** The police don't get involved in the deathmatch itself.
 2. **Busted in Points mode costs 250 points** (and counts as a death, as in every mode).
 3. **Arrests take one second of contact**, during which you can break away.
-4. **Losing heat:** waiting it out, and **cop bribe crates**. No spray shops for now.
+4. **Losing heat:** waiting it out, and **cop bribe crates**. No spray shops for now (later asked
+   for after all, and added).
 5. **The army's art:** CC0 models for the tank and the helicopter, downloaded (sources to be
    found and approved when we get to step 3).
 6. **New rooms:** police **and army on** by default.

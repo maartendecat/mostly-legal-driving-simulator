@@ -4,9 +4,10 @@ import { lineOfSight } from './map';
 import { driveTowards, forwardSpeed } from './navigate';
 import { ejectDriver } from './pedestrians';
 import { secondsToTicks } from './time';
-import { hiddenLaneNear, outOfSight, startTraffic, type TrafficState } from './traffic';
-import { DIRECTIONS } from './map';
-import { carSpeed, spawnCar, type Car, type Ped, type World } from './world';
+import { tankInput } from './army';
+import { deployUnits } from './escalation';
+import type { TrafficState } from './traffic';
+import { carSpeed, isLaw, type Car, type Ped, type World } from './world';
 
 /**
  * The police (see docs/POLICE.md for the full plan; this is its first step).
@@ -39,6 +40,8 @@ export type Crime =
   | 'assaultPolice'
   | 'stealPoliceCar'
   | 'killCop'
+  | 'killSwat'
+  | 'destroyArmy'
   | 'wreckPoliceCar';
 
 /**
@@ -56,6 +59,10 @@ export const CRIMES: Record<Crime, { heat: number; major: boolean; cooldownTicks
   assaultPolice: { heat: 10, major: true, cooldownTicks: secondsToTicks(1) },
   stealPoliceCar: { heat: 20, major: true, cooldownTicks: 0 },
   killCop: { heat: 40, major: true, cooldownTicks: 0 },
+  /** Killing a SWAT officer or a soldier. */
+  killSwat: { heat: 60, major: true, cooldownTicks: 0 },
+  /** Destroying a tank or shooting down a helicopter. */
+  destroyArmy: { heat: 100, major: true, cooldownTicks: 0 },
   wreckPoliceCar: { heat: 40, major: true, cooldownTicks: 0 },
 };
 
@@ -73,25 +80,20 @@ export interface WantedRecord {
   hostileUntil: number;
   /** When each crime last counted, for crimes with a cooldown. */
   lastCrimeTick: Partial<Record<Crime, number>>;
+  /** Ticks in a row at four stars or more: a long chase calls in the army (ARMY_AFTER_TICKS). */
+  highTicks: number;
 }
 
 /** Out of the police's sight for this long plus LEVEL_DROP_TICKS, the first star goes... */
 export const COOL_OFF_TICKS = secondsToTicks(10);
 /** ...and then one more every LEVEL_DROP_TICKS. */
 export const LEVEL_DROP_TICKS = secondsToTicks(15);
+/** Kept at four or five stars this long, the army comes anyway. */
+export const ARMY_AFTER_TICKS = secondsToTicks(90);
 /** Shooting where the police see it (or at them) makes a suspect hostile for this long. */
 const HOSTILE_TICKS = secondsToTicks(10);
 /** Cops and police cars see a wanted player from this far (in blocks), in plain sight. */
 const POLICE_SIGHT = 12;
-/** At one star only police cars this close join the chase; from two stars, all of them. */
-const PURSUIT_RANGE = 20;
-/** Extra police cars (besides the ones on patrol) per wanted player, by level, and per room at most. */
-const REINFORCEMENTS = [0, 0, 2, 4, 4, 4, 4] as const;
-const MAX_REINFORCEMENTS = 8;
-/** Reinforcements appear on a road this far from the suspect (out of every player's sight). */
-const REINFORCEMENT_MIN_DISTANCE = 15;
-const REINFORCEMENT_MAX_DISTANCE = 40;
-const REINFORCE_EVERY_TICKS = 30;
 /** A chasing police car drives at up to this speed (blocks/s), slower in turns. */
 const PURSUIT_SPEED = 10;
 const PURSUIT_TURN_SPEED = 4;
@@ -100,6 +102,8 @@ const FOLLOW_DISTANCE = 5;
 /** Pulls up when the suspect is this close and (nearly) standing still, then the cops get out. */
 const PULL_UP_DISTANCE = 4;
 const SUSPECT_STOPPED_SPEED = 2;
+const HEAVY_PULL_UP_DISTANCE = 6;
+const HEAVY_SUSPECT_STOPPED_SPEED = 4;
 /** A car going slower than this can be arrested out of. */
 export const ARRESTABLE_CAR_SPEED = 1;
 /** Cops still try to arrest up to this level; above it they only shoot. */
@@ -128,7 +132,7 @@ export function reportCrime(world: World, offenderId: number | null, crime: Crim
   const last = record?.lastCrimeTick[crime];
   if (last !== undefined && world.tick - last < def.cooldownTicks) return;
   if (!record) {
-    record = { pedId: offender.id, heat: 0, unseenTicks: 0, hostileUntil: 0, lastCrimeTick: {} };
+    record = { pedId: offender.id, heat: 0, unseenTicks: 0, hostileUntil: 0, lastCrimeTick: {}, highTicks: 0 };
     world.wanted.push(record);
   }
   if (def.cooldownTicks > 0) record.lastCrimeTick[crime] = world.tick;
@@ -149,6 +153,7 @@ export function reportCrime(world: World, offenderId: number | null, crime: Crim
 export function reportHarm(world: World, victim: Ped, attackerId: number | null, cause: DamageCause, killed: boolean): void {
   if (victim.kind === 'player') return;
   if (victim.kind === 'cop') reportCrime(world, attackerId, killed ? 'killCop' : 'assaultPolice');
+  else if (isLaw(victim)) reportCrime(world, attackerId, killed ? 'killSwat' : 'assaultPolice');
   else if (killed) reportCrime(world, attackerId, 'killPerson');
   else if (cause === 'runOver') reportCrime(world, attackerId, 'runOver');
 }
@@ -156,7 +161,12 @@ export function reportHarm(world: World, victim: Ped, attackerId: number | null,
 /** A car was wrecked; whoever did it (`car.lastAttackerId`) committed a crime, if anyone saw. */
 export function reportWreck(world: World, car: Car): void {
   if (car.lastAttackerId === null || car.lastAttackerId === car.driverId) return; // their own ride
-  reportCrime(world, car.lastAttackerId, car.police ? 'wreckPoliceCar' : 'wreckCar');
+  reportCrime(world, car.lastAttackerId, car.model === 'tank' ? 'destroyArmy' : car.police ? 'wreckPoliceCar' : 'wreckCar');
+}
+
+/** Who's in a police or army vehicle (and gets out of it): cops, SWAT or soldiers. */
+export function crewOf(car: Car): 'cop' | 'swat' | 'soldier' {
+  return car.model === 'swatVan' ? 'swat' : car.model === 'armyTruck' || car.model === 'tank' ? 'soldier' : 'cop';
 }
 
 /** A cop bribe: one star off at once. */
@@ -225,71 +235,27 @@ export function stepPolice(world: World): void {
         const level = wantedLevel(record.heat);
         record.heat = level > 1 ? WANTED_LEVEL_HEAT[level - 1]! : 0;
       }
+      // A long chase at four or five stars ends with the army being called in.
+      record.highTicks = wantedLevel(record.heat) >= 4 ? record.highTicks + 1 : 0;
+      if (record.highTicks >= ARMY_AFTER_TICKS && world.policeMode === 'on' && record.heat < WANTED_LEVEL_HEAT[6]) {
+        record.heat = WANTED_LEVEL_HEAT[6];
+        world.events.push({ type: 'wanted', tick: world.tick, ownerId: ped.id, pedId: ped.id, level: 6, x: ped.x, y: ped.y });
+      }
       ped.wanted = wantedLevel(record.heat);
       return record.heat > 0;
     });
   }
-  for (const car of world.cars.values()) {
-    const traffic = car.traffic;
-    if (!car.police || !traffic) continue;
-    if (traffic.pursuing !== null) {
-      const suspect = world.peds.get(traffic.pursuing);
-      if (suspect && isWanted(suspect)) continue;
-      // Gave up (or got them): back to driving around.
-      car.siren = false;
-      traffic.pursuing = null;
-      startTraffic(world, car);
-      continue;
-    }
-    const suspect = nearestWanted(world, car.x, car.y, Infinity);
-    if (suspect && (suspect.wanted >= 2 || Math.hypot(suspect.x - car.x, suspect.y - car.y) < PURSUIT_RANGE)) {
-      traffic.pursuing = suspect.id;
-      traffic.route = [];
-      traffic.stuckTicks = traffic.reverseTicks = 0;
-      car.siren = true;
-    }
-  }
-  reinforce(world);
+  deployUnits(world);
 }
 
-/**
- * Keeps the number of crewed police cars at the patrol target plus the reinforcements the wanted
- * players' levels call for: adding them out of sight near the most wanted player, and taking idle
- * ones off the streets (out of sight) once they're no longer needed.
- */
-function reinforce(world: World): void {
-  let needed = 0;
-  let mostWanted: Ped | undefined;
-  for (const record of world.wanted) {
-    const ped = world.peds.get(record.pedId);
-    if (!ped || isDead(ped)) continue;
-    needed += REINFORCEMENTS[ped.wanted] ?? 0;
-    if (!mostWanted || ped.wanted > mostWanted.wanted) mostWanted = ped;
-  }
-  needed = Math.min(needed, MAX_REINFORCEMENTS);
-  const crewed = [...world.cars.values()].filter((c) => c.police && c.traffic);
-  const target = world.policeCarTarget + needed;
-  if (crewed.length < target && mostWanted && world.tick % REINFORCE_EVERY_TICKS === 0) {
-    const cell = hiddenLaneNear(world, mostWanted.x, mostWanted.y, REINFORCEMENT_MIN_DISTANCE, REINFORCEMENT_MAX_DISTANCE);
-    if (cell) {
-      const car = spawnCar(world, 'sedan', cell.x, cell.y, DIRECTIONS[cell.dir]!.heading);
-      Object.assign(car, { police: true, color: 0xffffff });
-      startTraffic(world, car);
-    }
-  } else if (crewed.length > target) {
-    const idle = crewed.find((c) => c.traffic!.pursuing === null && outOfSight(world, c.x, c.y));
-    if (idle) world.cars.delete(idle.id);
-  }
-}
-
-/** The nearest wanted player (one star or more) within `range`, if any. */
-export function nearestWanted(world: World, x: number, y: number, range: number): Ped | undefined {
+/** The nearest wanted player (with at least `minLevel` stars) within `range`, if any. */
+export function nearestWanted(world: World, x: number, y: number, range: number, minLevel = 1): Ped | undefined {
   let best: Ped | undefined;
   let bestDistance = range;
   for (const record of world.wanted) {
     const ped = world.peds.get(record.pedId);
     // (Some heat but not a star yet: nobody's after them.)
-    if (!ped || isDead(ped) || ped.wanted === 0) continue;
+    if (!ped || isDead(ped) || ped.wanted < minLevel) continue;
     const distance = Math.hypot(ped.x - x, ped.y - y);
     if (distance < bestDistance) {
       best = ped;
@@ -303,7 +269,7 @@ export function nearestWanted(world: World, x: number, y: number, range: number)
 function seenByPolice(world: World, ped: Ped): boolean {
   const sees = (x: number, y: number) => Math.hypot(x - ped.x, y - ped.y) < POLICE_SIGHT && lineOfSight(world.map, x, y, ped.x, ped.y);
   for (const other of world.peds.values()) {
-    if (other.kind === 'cop' && !isDead(other) && other.carId === null && sees(other.x, other.y)) return true;
+    if (isLaw(other) && !isDead(other) && other.carId === null && sees(other.x, other.y)) return true;
   }
   for (const car of world.cars.values()) {
     if (car.police && car.traffic && sees(car.x, car.y)) return true;
@@ -319,17 +285,19 @@ function seenByPolice(world: World, ped: Ped): boolean {
 export function pursuitInput(world: World, car: Car, traffic: TrafficState): PlayerInput {
   const suspect = traffic.pursuing === null ? undefined : world.peds.get(traffic.pursuing);
   if (!suspect) return NO_INPUT;
+  if (car.model === 'tank') return tankInput(world, car, traffic, suspect);
   const forward = forwardSpeed(car);
+  // A SWAT van or army truck stops further away, for a faster suspect, and lets out four.
+  const heavy = car.model !== 'sedan';
   if (traffic.reverseTicks > 0) return driveTowards(world, car, traffic, suspect.x, suspect.y, PURSUIT_SPEED, PURSUIT_TURN_SPEED);
 
   const suspectCar = suspect.carId === null ? undefined : world.cars.get(suspect.carId);
   const suspectSpeed = suspectCar ? carSpeed(suspectCar) : 0;
   const distance = Math.hypot(suspect.x - car.x, suspect.y - car.y);
-  if (distance < PULL_UP_DISTANCE && suspectSpeed < SUSPECT_STOPPED_SPEED) {
+  if (distance < (heavy ? HEAVY_PULL_UP_DISTANCE : PULL_UP_DISTANCE) && suspectSpeed < (heavy ? HEAVY_SUSPECT_STOPPED_SPEED : SUSPECT_STOPPED_SPEED)) {
     if (Math.abs(forward) > 1) return { ...NO_INPUT, down: forward > 0, up: forward < 0 };
-    // Stopped next to them: both cops get out and go for the arrest; the car stays where it is.
-    ejectDriver(world, car, suspect, 'cop', 1);
-    ejectDriver(world, car, suspect, 'cop', -1);
+    // Stopped next to them: the crew gets out and goes for them; the car stays where it is.
+    for (let i = 0; i < (heavy ? 4 : 2); i++) ejectDriver(world, car, suspect, crewOf(car), i % 2 === 0 ? 1 : -1);
     car.traffic = null;
     car.siren = false;
     return NO_INPUT;

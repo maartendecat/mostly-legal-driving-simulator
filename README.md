@@ -49,7 +49,12 @@ over, stealing cars, killing) and anything against the police earn you wanted st
 the police nearby come after you, two and every police car in the city joins in and cops shoot
 back, three and they shoot on sight and ram you. A cop who reaches you needs a second to get hold
 of you and another to cuff you; get away in time and you're free: BUSTED, weapons gone, back elsewhere a moment later (−250 in Points
-mode). Out of their sight the stars go one by one; cop bribe crates (gold star) take one off.
+mode). Three stars bring roadblocks ahead of you, four and five SWAT vans (no more arrests: they
+shoot), and six (or a long chase at four or five) the army: a tank that crushes cars and shells
+you, soldiers, and a helicopter that circles overhead (shoot it down with rockets). Your stars are
+always at the top of the screen. Out of their sight the stars go one by one; cop bribe crates (gold
+star) take one off, and a spray shop (striped bay in front of a SPRAY garage: drive in and hold
+still) gets rid of them all.
 Killing other players is no crime. Rooms can have the police with or without the army, or none
 (`POLICE=on|noarmy|off`). Blown-up cars keep burning for a while,
 and a fire truck comes (lights flashing) to put the fire out with its water cannon, then drives off
@@ -175,7 +180,7 @@ The game never touches graphics directly. It goes through the `AssetPack` interf
 
 | Pack | Status | Use |
 |---|---|---|
-| `KenneyPack` | ✅ default | Free CC0 art by [Kenney](https://kenney.nl): 3D cars (Car Kit), people, ground tiles, crates and bushes (Top-down Shooter); building facades drawn in code. Files in `packages/client/public/assets/kenney/`. |
+| `KenneyPack` | ✅ default | Free CC0 art by [Kenney](https://kenney.nl): 3D cars (Car Kit), people, ground tiles, crates and bushes (Top-down Shooter); building facades drawn in code. Files in `packages/client/public/assets/kenney/`. The army's tank ("Tank" by Quaternius) and helicopter ("Helicopter" by kazuma) are CC0 models from [poly.pizza](https://poly.pizza), in `packages/client/public/assets/army/`. |
 | `PlaceholderPack` | ✅ done | Coloured boxes. Needs no files; good for gameplay work. Use `?pack=placeholder`. |
 | Classic pack | planned | Converted in the browser from the player's **own** GTA2 `.sty`/`.gmp` files. Cached in IndexedDB, never uploaded or distributed. |
 
@@ -187,8 +192,8 @@ maps and name. `.sty` and `.gmp` files are gitignored.
 
 ## Roadmap
 
-**Next up: the police** (Part A5 below): ✅ heat and wanted levels; next roadblocks and SWAT, then
-the army, as planned in [docs/POLICE.md](docs/POLICE.md).
+**The police** (Part A5 below): ✅ heat and wanted levels, ✅ roadblocks and SWAT, ✅ the army with
+tanks and helicopters, ✅ spray shops, as planned in [docs/POLICE.md](docs/POLICE.md).
 
 1. ✅ Shared simulation, placeholder renderer, driving and walking offline
 2. ✅ Multiplayer: authoritative WebSocket server, client-side prediction with reconciliation,
@@ -214,8 +219,8 @@ the army, as planned in [docs/POLICE.md](docs/POLICE.md).
    police car sees it, major crimes a proactive response, eventually the army with tanks and
    helicopters), then the implementation. ✅ A first part already: ramming a police car gets the
    police after you; they chase you and arrest you (BUSTED). ✅ Analysis done and decided:
-   [docs/POLICE.md](docs/POLICE.md). ✅ Step 1: heat and wanted levels 1–3 (cop bribes, police
-   option per room); next: roadblocks and SWAT
+   [docs/POLICE.md](docs/POLICE.md). ✅ Heat and wanted levels (cop bribes, police option per
+   room), ✅ roadblocks, ✅ SWAT, ✅ the army (tank, troop truck, helicopter), ✅ spray shops
 
 ### Later
 
