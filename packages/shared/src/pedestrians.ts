@@ -52,10 +52,16 @@ export interface PedestrianState {
   approach: boolean;
 }
 
-const WALK_SPEED = 1.4;
+const WALK_SPEED = 1.2;
 /** Crossing the road: a brisk walk, to spend less time in front of traffic. */
-const CROSSING_SPEED = 2.2;
-const RUN_SPEED = 3.2;
+const CROSSING_SPEED = 1.8;
+/**
+ * Running away: a jog, slower than a player walks (3), so they can be caught and hit. Jumping out of
+ * a car's way, and cops and gang members chasing someone, are quicker.
+ */
+const RUN_SPEED = 2.3;
+const DODGE_SPEED = 3.2;
+const CHASE_SPEED = 3.2;
 /** How quickly they turn to face where they're going, in radians per second. */
 const TURN_RATE = 7;
 const PANIC_TICKS = secondsToTicks(4);
@@ -292,7 +298,7 @@ function chaseSuspect(world: World, ped: Ped, ai: PedestrianState, dt: number): 
   }
   ai.aimTicks = 0;
   face(ped, suspect.x, suspect.y, dt);
-  const step = Math.min(RUN_SPEED * dt, distance - reach * 0.8);
+  const step = Math.min(CHASE_SPEED * dt, distance - reach * 0.8);
   if (step <= 0) return true;
   const sx = (dx / distance) * step;
   const sy = (dy / distance) * step;
@@ -360,7 +366,7 @@ function fightGrudge(world: World, ped: Ped, ai: PedestrianState, dt: number): b
   if (shootAt(world, ped, ai, enemy, enemyDistance, GANG_SHOOT_RANGE, dt)) return true;
   // Out of range or out of sight: run at them (sliding along walls).
   ped.heading = Math.atan2(dy, dx);
-  const step = RUN_SPEED * dt;
+  const step = CHASE_SPEED * dt;
   const sx = (dx / enemyDistance) * step;
   const sy = (dy / enemyDistance) * step;
   if (!pedCollides(world.map, ped.x + sx, ped.y)) ped.x += sx;
@@ -440,7 +446,7 @@ function walk(world: World, ped: Ped, ai: PedestrianState, dt: number): void {
 
   // Face where they're going (turning quickly but not instantly), and step that way.
   face(ped, ai.target.x, ai.target.y, dt);
-  const speed = ai.panicTicks > 0 ? RUN_SPEED : (ai.crossing ? CROSSING_SPEED : WALK_SPEED) * PACE[ped.look];
+  const speed = ai.panicTicks > 0 ? (ai.panicPath ? DODGE_SPEED : RUN_SPEED) : (ai.crossing ? CROSSING_SPEED : WALK_SPEED) * PACE[ped.look];
   const step = Math.min(speed * dt, distance);
   const sx = (dx / distance) * step;
   const sy = (dy / distance) * step;

@@ -70,11 +70,11 @@ test('gunfire nearby makes pedestrians run away; far away it does not bother the
   run(world, 20);
   assert.ok(ped.ai!.panicTicks > 0, 'panicking');
   assert.ok(faraway.ai!.panicTicks === 0, 'too far away to care');
-  // Running, not strolling: well over a block in half a second.
+  // Running, not strolling: about a block in half a second (but slower than a player walks).
   const running = { x: ped.x, y: ped.y };
   run(world, 30);
   const ran = Math.hypot(ped.x - running.x, ped.y - running.y);
-  assert.ok(ran > 1.2, `ran ${ran.toFixed(1)} blocks in half a second (strolling would be 0.7)`);
+  assert.ok(ran > 0.95 && ran < 1.5, `ran ${ran.toFixed(1)} blocks in half a second (strolling would be 0.6, a player walks 1.5)`);
 });
 
 test('a car speeding at a pedestrian makes them jump out of its way', () => {

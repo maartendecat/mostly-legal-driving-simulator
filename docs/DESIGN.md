@@ -241,7 +241,7 @@ The people walking the city (`pedestrians.ts` and `gangs.ts`, part of the shared
 They're peds like players, so they can be shot and run over by the same rules. There are three
 kinds: **civilians** (described first), **gang members** and **cops** (further down).
 
-- **Walking:** cell by cell along the pavements at a stroll (1.4 blocks/s; elderly people 0.6×,
+- **Walking:** cell by cell along the pavements at a stroll (1.2 blocks/s; elderly people 0.6×,
   youths 1.15×): mostly straight on, sometimes turning (weights 6 : 2 : 2), back only at a dead end,
   and now and then stopping for 1–3 s (3% per cell). **Looks:** man, woman (3 in 11 each), youth,
   worker (2 in 11 each), elder (1 in 11). Players get a look too, by join order.
@@ -250,11 +250,12 @@ kinds: **civilians** (described first), **gang members** and **cops** (further d
   after their step, so measuring within the step never saw them stuck.
 - **Crossing:** at the kerb facing a road they sometimes cross (20% chance), straight over to the
   pavement opposite, not at intersections, and only when no moving car is within 8 blocks; they walk
-  briskly (2.2) while on the road. Traffic stops for them anyway (see [§9](#9-traffic)).
+  briskly (1.8) while on the road. Traffic stops for them anyway (see [§9](#9-traffic)).
 - **Panic:** impacts, explosions, deaths and bullets or rockets flying past within 7 blocks make them
-  run (3.2 blocks/s) for 4 s, to the open cell furthest from the danger, preferring off the road. A
-  car heading straight at them (faster than 4, within 4.5 blocks, its path within 0.8 of them) makes
-  them jump sideways out of its path, onto the road if need be. Afterwards they walk back to the
+  run for 4 s, at a jog of 2.3 blocks/s (slower than a player walks, so they can be caught and
+  hit), to the open cell furthest from the danger, preferring off the road. A car heading straight
+  at them (faster than 4, within 4.5 blocks, its path within 0.8 of them) makes them jump sideways
+  out of its path (quickly: 3.2 blocks/s), onto the road if need be. Afterwards they walk back to the
   nearest pavement, avoiding the traffic lanes where possible.
 - **Bodies:** a body within 4 blocks, in plain sight, that they haven't noticed before makes a
   civilian stop and stare at it for 1.5–3.5 s, facing it (60%), or hurry away as if from danger
@@ -298,7 +299,7 @@ crime: see [§12](#12-police). Gang members ignore bodies.
   their deaths.
 
 **Measured over 15 simulated city-minutes** (16 traffic cars, 40 pedestrians, five cities): on the
-pavement 97% of the time, none run over by traffic, everyone keeps moving (about 150 blocks each in
+pavement 97% of the time (94% since they walk slower), none run over by traffic, everyone keeps moving (about 150 blocks each in
 3 minutes). A full city costs about 0.45 ms per simulation tick; 0.5 ms with gangs and cops (65
 people). (The first versions lost 12
 pedestrians to traffic in that time: panicking and returning pedestrians took the shortest way, often
@@ -559,6 +560,7 @@ GTA2 files in their browser, never uploading or hosting them. The game's name is
 | Traffic drives with player controls | Same physics for everyone, no special cases |
 | "It" stored in the world | It changes the simulation, so prediction must know it |
 | Pedestrians are peds with `kind` and `ai` | Shooting, running over, bodies and physics work for them unchanged |
+| Pedestrians flee slower than players walk (2.3 vs 3) | Playtest feedback: at 3.2 they outran you and were too hard to hit; dodging cars and cops or gangsters chasing stay at 3.2 |
 | Pedestrians dodge cars sideways, ignore passing traffic | Measured: fleeing "away" or reacting to any nearby car got them run over |
 | Fire trucks put out burning wrecks, not burning cars | A car blows 3 s after catching fire: no truck could get there in time |
 | Ramming a police car makes you wanted at once | Playtest feedback |
